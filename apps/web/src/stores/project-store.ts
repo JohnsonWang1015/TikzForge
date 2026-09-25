@@ -59,7 +59,7 @@ interface ProjectState {
   updateElementTransient: (id: string, patch: Partial<DiagramElement>) => void;
   commitInteraction: (before: Project, label: string) => void;
   addNode: (type: PrimitiveNodeType) => void;
-  addArrow: (from?: string, to?: string) => void;
+  addArrow: (from?: string, to?: string, type?: EdgeElement['type']) => void;
   addPlot: () => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
@@ -167,7 +167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     );
     set({ selectedIds: [node.id] });
   },
-  addArrow: (from, to) => {
+  addArrow: (from, to, type = 'arrow') => {
     const current = get().project;
     const nodes = current.elements.filter(isNodeElement);
     const source =
@@ -177,7 +177,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const edge = createArrow(
       source,
       target,
-      {},
+      { type },
       current.elements.map((element) => element.id),
     );
     get().setProject(

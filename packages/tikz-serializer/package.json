@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@tikzforge/graphic-ir": "0.1.0"
+    "@tikzforge/graphic-ir": "0.1.0",
+    "@tikzforge/tikz-parser": "0.1.0"
   }
 }

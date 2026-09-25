@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ArrowLeftRight,
   Circle,
   CircleDot,
   GitBranch,
@@ -77,14 +78,16 @@ export function ComponentSidebar() {
           <ComponentButton
             label="Arrow"
             icon={<MoveRight size={14} />}
-            onClick={() => addArrow()}
+            onClick={() => addArrow(undefined, undefined, 'arrow')}
           />
-          <ComponentButton label="Line" icon={<LineChart size={14} />} onClick={() => addArrow()} />
+          <ComponentButton label="Line" icon={<LineChart size={14} />} onClick={() => addArrow(undefined, undefined, 'line')} />
           <ComponentButton
             label="Curved"
             icon={<GitBranch size={14} />}
-            onClick={() => addArrow()}
+            onClick={() => addArrow(undefined, undefined, 'curved-arrow')}
           />
+          <ComponentButton label="Dashed" icon={<MoveRight size={14} />} onClick={() => addArrow(undefined, undefined, 'dashed-arrow')} />
+          <ComponentButton label="2-way" icon={<ArrowLeftRight size={14} />} onClick={() => addArrow(undefined, undefined, 'bidirectional-arrow')} />
         </div>
       </section>
       <section className="component-section">

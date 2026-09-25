@@ -755,8 +755,8 @@ function parseDocument(source: string): { ast: TikzDocumentAst; diagnostics: Dia
     kind: 'document',
     source,
     bodyRange: { startOffset: bodyStart, endOffset: bodyEnd, line: 1, column: 1 },
-    wrapperPrefix: begin ? source.slice(0, bodyStart) : '',
-    wrapperSuffix: begin && end ? source.slice(bodyEnd) : '',
+    wrapperPrefix: begin ? source.slice(0, begin.index ?? 0) : '',
+    wrapperSuffix: begin && end ? source.slice(bodyEnd + end[0].length) : '',
     statements,
     tokens,
   };
