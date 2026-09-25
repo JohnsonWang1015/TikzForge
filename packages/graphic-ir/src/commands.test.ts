@@ -9,7 +9,11 @@ describe('Graphic IR commands', () => {
     const after = { ...before, x: before.x + 80 };
     const command = new UpdateElementCommand('Move node', before, after);
     const moved = command.execute(project);
-    expect(moved.elements.find((element) => element.id === before.id)).toMatchObject({ x: before.x + 80 });
-    expect(command.undo(moved).elements.find((element) => element.id === before.id)).toMatchObject({ x: before.x });
+    expect(moved.elements.find((element) => element.id === before.id)).toMatchObject({
+      x: before.x + 80,
+    });
+    expect(command.undo(moved).elements.find((element) => element.id === before.id)).toMatchObject({
+      x: before.x,
+    });
   });
 });

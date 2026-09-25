@@ -34,17 +34,28 @@ describe('TikZ serializer', () => {
   });
 
   it('round-trips supported TikZ semantics through IR', () => {
-    const source = '\\begin{tikzpicture}\n\\node[draw] (A) at (0,0) {CNN};\n\\node[draw, rounded corners] (B) at (4,0) {Transformer};\n\\draw[->] (A) -- (B);\n\\end{tikzpicture}';
+    const source =
+      '\\begin{tikzpicture}\n\\node[draw] (A) at (0,0) {CNN};\n\\node[draw, rounded corners] (B) at (4,0) {Transformer};\n\\draw[->] (A) -- (B);\n\\end{tikzpicture}';
     const first = parseTikz(source);
     const second = parseTikz(serializeProject(first.project));
     expect(first.valid).toBe(true);
     expect(second.valid).toBe(true);
-    expect(second.project.elements.filter((element) => element.type === 'rectangle').map((element) => element.id)).toEqual(['A', 'B']);
-    expect(second.project.elements.some((element) => element.type === 'arrow' && element.from === 'A' && element.to === 'B')).toBe(true);
+    expect(
+      second.project.elements
+        .filter((element) => element.type === 'rectangle')
+        .map((element) => element.id),
+    ).toEqual(['A', 'B']);
+    expect(
+      second.project.elements.some(
+        (element) => element.type === 'arrow' && element.from === 'A' && element.to === 'B',
+      ),
+    ).toBe(true);
   });
 
   it('retains a full LaTeX wrapper through a canvas serialization', () => {
-    const parsed = parseTikz('\\documentclass{article}\n\\begin{document}\n\\begin{tikzpicture}\n\\node[draw] (A) at (0,0) {A};\n\\end{tikzpicture}\n\\end{document}');
+    const parsed = parseTikz(
+      '\\documentclass{article}\n\\begin{document}\n\\begin{tikzpicture}\n\\node[draw] (A) at (0,0) {A};\n\\end{tikzpicture}\n\\end{document}',
+    );
     expect(serializeProject(parsed.project)).toContain('\\documentclass{article}');
     expect(serializeProject(parsed.project)).toContain('\\end{document}');
   });
