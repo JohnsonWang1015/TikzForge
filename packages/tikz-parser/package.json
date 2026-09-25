@@ -1,0 +1,16 @@
+{
+  "name": "@tikzforge/tikz-parser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test:unit": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tikzforge/graphic-ir": "0.1.0",
+    "@tikzforge/tikz-ast": "0.1.0"
+  }
+}

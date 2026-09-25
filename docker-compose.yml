@@ -1,0 +1,28 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      COMPILER_SERVICE_URL: http://compiler:8080
+    depends_on:
+      - compiler
+
+  compiler:
+    build:
+      context: .
+      dockerfile: docker/compiler/Dockerfile
+    expose:
+      - '8080'
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0

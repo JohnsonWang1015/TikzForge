@@ -1,0 +1,7 @@
+\begin{tikzpicture}
+  \node[draw, rounded corners, fill=blue!10] (cnn) at (0,0) {CNN};
+  \node[draw, rounded corners, fill=violet!10] (attention) at (4,0) {Attention};
+  \node[draw, rounded corners, fill=green!10] (classifier) at (8,0) {Classifier};
+  \draw[->] (cnn) -- (attention);
+  \draw[->] (attention) -- (classifier);
+\end{tikzpicture}

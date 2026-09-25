@@ -1,0 +1,7 @@
+\begin{tikzpicture}
+  \node[draw, rounded corners, fill=blue!10] (input) at (0,0) {Input};
+  \node[draw] (model) at (4,0) {Model};
+  \node[draw] (output) at (8,0) {Output};
+  \draw[->] (input) -- (model);
+  \draw[->] (model) -- (output);
+\end{tikzpicture}

@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/graphic-ir",
+  "crates/tikz-ast",
+  "crates/tikz-parser",
+  "crates/tikz-serializer",
+  "apps/compiler-server",
+]

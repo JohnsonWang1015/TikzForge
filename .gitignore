@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+coverage/
+target/
+.turbo/
+*.log
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+*.tikzproject
+*.sdiagram
+.DS_Store
