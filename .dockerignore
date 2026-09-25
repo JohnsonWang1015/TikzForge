@@ -1,0 +1,11 @@
+.git
+.next
+**/.next
+node_modules
+**/node_modules
+target
+**/target
+playwright-report
+test-results
+*.tsbuildinfo
+npm-debug.log*

@@ -2,7 +2,7 @@ FROM node:22-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
-COPY packages/*/package.json packages/
+COPY packages packages
 RUN npm ci
 
 FROM dependencies AS builder

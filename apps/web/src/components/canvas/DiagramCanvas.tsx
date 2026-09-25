@@ -236,7 +236,11 @@ export function DiagramCanvas() {
   }
 
   function startPan(event: ReactPointerEvent<SVGSVGElement>): void {
-    if (event.target !== event.currentTarget && event.button !== 1) return;
+    const target = event.target;
+    const clickedElement =
+      target instanceof Element && target.closest('[data-testid^="canvas-element-"]');
+    if (clickedElement && event.button !== 1) return;
+    if (event.button !== 0 && event.button !== 1) return;
     if (!event.shiftKey) clearSelection();
     setIsPanning(true);
     dragRef.current = {

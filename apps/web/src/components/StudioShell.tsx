@@ -38,43 +38,54 @@ export function StudioShell() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
       const modifier = event.ctrlKey || event.metaKey;
-      if (modifier && event.key.toLowerCase() === 'z') {
+      const key = event.key.toLowerCase();
+      const target = event.target;
+      const isEditing =
+        target instanceof HTMLElement &&
+        Boolean(
+          target.closest('input, textarea, select, [contenteditable="true"], .monaco-editor'),
+        );
+      if (modifier && key === 's') {
+        event.preventDefault();
+        save();
+        return;
+      }
+      if (isEditing) return;
+      if (modifier && key === 'z') {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
         return;
       }
-      if (modifier && event.key.toLowerCase() === 'y') {
+      if (modifier && key === 'y') {
         event.preventDefault();
         redo();
         return;
       }
-      if (modifier && event.key.toLowerCase() === 'a') {
+      if (modifier && key === 'a') {
         event.preventDefault();
         selectAll();
         return;
       }
-      if (modifier && event.key.toLowerCase() === 'd') {
+      if (modifier && key === 'd') {
         event.preventDefault();
         duplicateSelected();
         return;
       }
-      if (modifier && event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        save();
-        return;
-      }
-      if (modifier && event.key.toLowerCase() === 'c') {
+      if (modifier && key === 'c') {
         event.preventDefault();
         const payload = copySelected();
         void navigator.clipboard?.writeText(payload);
         return;
       }
-      if (modifier && event.key.toLowerCase() === 'v') {
+      if (modifier && key === 'v') {
         event.preventDefault();
-        void navigator.clipboard?.readText().then((payload) => {
-          if (payload) pasteClipboard(payload);
-        });
+        const clipboard = navigator.clipboard;
+        if (clipboard) {
+          void clipboard.readText().then((payload) => {
+            if (payload) pasteClipboard(payload);
+          });
+        }
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
