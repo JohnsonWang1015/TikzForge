@@ -46,9 +46,10 @@ test('studio loads and supports the core visual workflow', async ({ page }) => {
 test('render API returns SVG and rejects shell escape', async ({ request }) => {
   const response = await request.post('/api/render', { data: { source: tikzSource } });
   expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { success: boolean; svg: string };
+  const body = (await response.json()) as { success: boolean; svg: string; renderer: string };
   expect(body.success).toBeTruthy();
   expect(body.svg).toContain('<svg');
+  expect(body.renderer).toBe('fast');
 
   const rejected = await request.post('/api/render', {
     data: { source: String.raw`\write18{touch /tmp/pwned}` },

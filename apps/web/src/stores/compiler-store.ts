@@ -4,11 +4,15 @@ import { create } from 'zustand';
 import type { Diagnostic } from '@tikzforge/graphic-ir';
 import { useProjectStore } from './project-store';
 
+/** `tectonic` is real LaTeX output from the compiler service; `fast` is the IR preview. */
+export type PreviewRenderer = 'tectonic' | 'fast';
+
 interface CompilerState {
   status: 'idle' | 'compiling' | 'success' | 'error';
   svg?: string;
   log: string;
   compileTime?: number;
+  renderer?: PreviewRenderer;
   errors: Diagnostic[];
   compile: () => Promise<void>;
   clear: () => void;
@@ -33,6 +37,7 @@ export const useCompilerStore = create<CompilerState>((set) => ({
         log?: string;
         compileTime?: number;
         errors?: Diagnostic[];
+        renderer?: PreviewRenderer;
       };
       if (!response.ok || !body.success) {
         set({
@@ -41,6 +46,7 @@ export const useCompilerStore = create<CompilerState>((set) => ({
             { severity: 'error', message: 'Compiler request failed.', line: 1, column: 1 },
           ],
           log: body.log ?? '',
+          renderer: body.renderer,
         });
         return;
       }
@@ -48,6 +54,7 @@ export const useCompilerStore = create<CompilerState>((set) => ({
         status: 'success',
         svg: body.svg,
         compileTime: body.compileTime,
+        renderer: body.renderer,
         log: body.log ?? '',
         errors: [],
       });
@@ -65,5 +72,13 @@ export const useCompilerStore = create<CompilerState>((set) => ({
       });
     }
   },
-  clear: () => set({ status: 'idle', svg: undefined, log: '', compileTime: undefined, errors: [] }),
+  clear: () =>
+    set({
+      status: 'idle',
+      svg: undefined,
+      log: '',
+      compileTime: undefined,
+      renderer: undefined,
+      errors: [],
+    }),
 }));

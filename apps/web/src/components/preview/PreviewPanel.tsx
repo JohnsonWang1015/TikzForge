@@ -11,6 +11,8 @@ export function PreviewPanel() {
   const svg = useCompilerStore((state) => state.svg);
   const log = useCompilerStore((state) => state.log);
   const errors = useCompilerStore((state) => state.errors);
+  const renderer = useCompilerStore((state) => state.renderer);
+  const latex = renderer === 'tectonic';
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal">
@@ -21,9 +23,7 @@ export function PreviewPanel() {
           </button>
         </div>
         <div className="modal-body">
-          {status === 'compiling' && (
-            <div className="empty-inspector">Compiling supported TikZ subset…</div>
-          )}
+          {status === 'compiling' && <div className="empty-inspector">Compiling…</div>}
           {status === 'error' && (
             <div className="diagnostic-strip">
               <AlertTriangle size={14} />
@@ -38,7 +38,8 @@ export function PreviewPanel() {
             <>
               <div className="status-items">
                 <span className="status-ok">
-                  <CheckCircle2 size={14} /> Fast preview ready
+                  <CheckCircle2 size={14} />{' '}
+                  {latex ? 'LaTeX (Tectonic) preview ready' : 'Fast preview ready'}
                 </span>
                 <span>{log}</span>
               </div>
@@ -51,7 +52,8 @@ export function PreviewPanel() {
                     height: 360,
                     border: '1px solid var(--border)',
                     borderRadius: 8,
-                    background: '#0b1020',
+                    // Tectonic output is dark ink on a transparent page.
+                    background: latex ? '#ffffff' : '#0b1020',
                     marginTop: 14,
                   }}
                   sandbox="allow-same-origin"

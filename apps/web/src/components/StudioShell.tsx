@@ -26,6 +26,7 @@ export function StudioShell() {
   const load = useProjectStore((state) => state.load);
   const compileStatus = useCompilerStore((state) => state.status);
   const compileTime = useCompilerStore((state) => state.compileTime);
+  const compileRenderer = useCompilerStore((state) => state.renderer);
   const compileErrors = useCompilerStore((state) => state.errors);
 
   useEffect(() => {
@@ -154,7 +155,10 @@ export function StudioShell() {
           <span>{selectedIds.length ? `${selectedIds.length} selected` : 'No selection'}</span>
         </div>
         <div className="status-items">
-          <span>{compileTime ? `Compile ${compileTime}ms` : 'Fast preview'}</span>
+          <span>
+            {compileRenderer === 'tectonic' ? 'LaTeX (Tectonic)' : 'Fast preview'}
+            {compileTime !== undefined ? ` · ${compileTime}ms` : ''}
+          </span>
           {compileErrors.length > 0 && (
             <span className="status-error">{compileErrors.length} diagnostics</span>
           )}
