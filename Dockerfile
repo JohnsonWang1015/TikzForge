@@ -8,6 +8,8 @@ RUN npm ci
 FROM dependencies AS builder
 COPY . .
 RUN npm run build --workspace @tikzforge/web
+# Git does not track the empty public/ directory, but the runner stage copies it.
+RUN mkdir -p apps/web/public
 
 FROM node:22-alpine AS runner
 WORKDIR /app
