@@ -7,10 +7,10 @@ pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
 
 pub fn validate_source(source: &str) -> Result<(), Vec<CompileError>> {
     if source.len() > MAX_SOURCE_BYTES {
-        return Err(vec![CompileError {
-            line: 1,
-            message: format!("Source exceeds the {} byte limit.", MAX_SOURCE_BYTES),
-        }]);
+        return Err(vec![CompileError::error(
+            1,
+            format!("Source exceeds the {} byte limit.", MAX_SOURCE_BYTES),
+        )]);
     }
     let forbidden = [
         r"\write18",
@@ -25,10 +25,10 @@ pub fn validate_source(source: &str) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
     for needle in forbidden {
         if let Some(offset) = source.find(needle) {
-            errors.push(CompileError {
-                line: source[..offset].matches('\n').count() + 1,
-                message: format!("Forbidden compiler construct: {needle}"),
-            });
+            errors.push(CompileError::error(
+                source[..offset].matches('\n').count() + 1,
+                format!("Forbidden compiler construct: {needle}"),
+            ));
         }
     }
     if errors.is_empty() {
@@ -73,10 +73,7 @@ pub fn parse_compile_errors(log: &str) -> Vec<CompileError> {
                 .take_while(|character| character.is_ascii_digit())
                 .collect();
             let line_number = digits.parse::<usize>().ok()?;
-            Some(CompileError {
-                line: line_number,
-                message: line.trim().to_owned(),
-            })
+            Some(CompileError::error(line_number, line.trim()))
         })
         .collect()
 }

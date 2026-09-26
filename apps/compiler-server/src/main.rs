@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tikzforge_graphic_ir::{RenderRequest, RenderResponse};
+use tikzforge_graphic_ir::{CompileError, RenderRequest, RenderResponse};
 use tikzforge_tikz_serializer::{
     document_source, fallback_response, parse_compile_errors, pdf_path, validate_source,
 };
@@ -68,10 +68,7 @@ async fn tectonic_response(source: &str, max_timeout_ms: u64) -> Option<RenderRe
                 svg: None,
                 compile_time_ms: started.elapsed().as_millis(),
                 log: "Tectonic compilation timed out.".into(),
-                errors: vec![tikzforge_graphic_ir::CompileError {
-                    line: 1,
-                    message: "Compiler timeout exceeded.".into(),
-                }],
+                errors: vec![CompileError::error(1, "Compiler timeout exceeded.")],
             });
         }
     };
@@ -89,10 +86,7 @@ async fn tectonic_response(source: &str, max_timeout_ms: u64) -> Option<RenderRe
             compile_time_ms: started.elapsed().as_millis(),
             log,
             errors: if errors.is_empty() {
-                vec![tikzforge_graphic_ir::CompileError {
-                    line: 1,
-                    message: "Tectonic compilation failed.".into(),
-                }]
+                vec![CompileError::error(1, "Tectonic compilation failed.")]
             } else {
                 errors
             },
