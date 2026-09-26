@@ -8,6 +8,10 @@
 export const GRAPHIC_IR_FORMAT = 'latex-diagram-project' as const;
 export const GRAPHIC_IR_VERSION = '1.0' as const;
 
+/** 50 px per cm keeps the default 14 px canvas text close to LaTeX's \footnotesize. */
+export const DEFAULT_PIXELS_PER_CM = 50;
+export const DEFAULT_ORIGIN: Readonly<Point> = { x: 120, y: 360 };
+
 export type ElementLayer = 'background' | 'connections' | 'nodes' | 'labels' | 'overlays';
 
 export type PrimitiveNodeType =
@@ -102,6 +106,15 @@ export interface NodeElement extends ElementBase {
   /** Formula/Image elements can retain their original payload without losing visual fallback text. */
   source?: string;
   href?: string;
+  /**
+   * `fixed` sizes are emitted as TikZ minimum width/height; `auto` nodes size to their text like
+   * plain TikZ nodes. Missing means `fixed`, which is what canvas-created nodes use.
+   */
+  sizeMode?: 'auto' | 'fixed';
+  /** Named TikZ styles applied to the node, in option order (e.g. `box` from `box/.style`). */
+  styleRefs?: string[];
+  /** TikZ options the IR does not model (e.g. `inner sep=2pt`), re-emitted verbatim. */
+  extraOptions?: string[];
 }
 
 export interface EdgeElement extends ElementBase {
@@ -112,6 +125,21 @@ export interface EdgeElement extends ElementBase {
   controlPoints?: Point[];
   style: EdgeStyle;
   label?: string;
+  /** Extra options for the label node, e.g. `above` or `sloped, below`. */
+  labelOptions?: string;
+  /** TikZ anchor such as `east`, `north west` or an angle; the border point is used when absent. */
+  fromAnchor?: string;
+  toAnchor?: string;
+  /** `bend left` angle in degrees; negative values bend right. */
+  bend?: number;
+  /** Orthogonal routing: `-|` goes horizontal first, `|-` vertical first. */
+  route?: '-|' | '|-';
+  /** Verbatim arrow option such as `-Stealth` or `<->`, kept so round-trips don't rewrite it. */
+  arrowSpec?: string;
+  /** Named TikZ styles applied to the path, in option order. */
+  styleRefs?: string[];
+  /** TikZ options the IR does not model (e.g. `shorten >=2pt`), re-emitted verbatim. */
+  extraOptions?: string[];
 }
 
 export interface GroupElement extends ElementBase {
@@ -137,6 +165,10 @@ export interface PlotElement extends ElementBase {
   title?: string;
   xLabel?: string;
   yLabel?: string;
+  /** Verbatim `\addplot[...]` options. */
+  addplotOptions?: string;
+  /** Axis options the IR does not model (e.g. `grid=major`), re-emitted verbatim. */
+  extraOptions?: string[];
 }
 
 export interface RawTikzBlock extends ElementBase {
@@ -144,7 +176,27 @@ export interface RawTikzBlock extends ElementBase {
   source: string;
   reason: string;
   editable: false;
+  /**
+   * Read-only shapes the block draws (e.g. an unrolled `\foreach`), shown on the canvas but never
+   * serialized or edited.
+   */
+  preview?: PreviewShape[];
 }
+
+/** A plain drawn path inside a raw block's preview, in canvas coordinates. */
+export interface PreviewPath {
+  id: string;
+  type: 'preview-path';
+  d: string;
+  stroke: string;
+  fill: string;
+  lineWidth: number;
+  dashed: boolean;
+  arrowStart: boolean;
+  arrowEnd: boolean;
+}
+
+export type PreviewShape = NodeElement | EdgeElement | PlotElement | PreviewPath;
 
 export type DiagramElement = NodeElement | EdgeElement | GroupElement | PlotElement | RawTikzBlock;
 
@@ -189,10 +241,13 @@ export interface ProjectSettings {
   snap: boolean;
   gridSize: number;
   pixelsPerCm: number;
+  /** Canvas point that maps to TikZ (0,0). TikZ y grows upward while canvas y grows downward. */
+  origin: Point;
   compilerMode: 'server' | 'browser' | 'fast';
   previewMode: 'fast' | 'latex';
 }
 
+/** A named TikZ style (`name/.style={...}`); lengths are canvas pixels. */
 export interface TikzStyleDefinition {
   draw?: boolean;
   rounded?: boolean;
@@ -201,8 +256,15 @@ export interface TikzStyleDefinition {
   lineWidth?: number;
   dashed?: boolean;
   fontSize?: number;
+  fontWeight?: NodeStyle['fontWeight'];
+  textColor?: string;
   textWidth?: number;
   align?: NodeStyle['align'];
+  minimumWidth?: number;
+  minimumHeight?: number;
+  shape?: 'rectangle' | 'circle' | 'ellipse';
+  /** Arrow option a path style sets, e.g. `-Stealth`. */
+  arrowSpec?: string;
 }
 
 export interface Project {
@@ -214,6 +276,8 @@ export interface Project {
   styles: Record<string, TikzStyleDefinition>;
   rawTikzBlocks: RawTikzBlock[];
   settings: ProjectSettings;
+  /** Verbatim `\begin{tikzpicture}[...]` options (named styles, node distance, ...). */
+  pictureOptions?: string;
   /** Optional full-document wrapper retained when importing a .tex file. */
   documentWrapper?: {
     prefix: string;
@@ -241,7 +305,7 @@ export interface ValidationResult {
 export const DEFAULT_NODE_STYLE: NodeStyle = {
   fill: '#101827',
   stroke: '#6f83a7',
-  lineWidth: 1.5,
+  lineWidth: 1.4,
   rounded: true,
   fontSize: 14,
   fontWeight: 'normal',
@@ -251,7 +315,7 @@ export const DEFAULT_NODE_STYLE: NodeStyle = {
 
 export const DEFAULT_EDGE_STYLE: EdgeStyle = {
   stroke: '#91a4c6',
-  lineWidth: 1.5,
+  lineWidth: 1.4,
   arrow: 'stealth',
   dashed: false,
 };
@@ -298,7 +362,8 @@ export function createEmptyProject(title = 'Untitled diagram'): Project {
       grid: true,
       snap: true,
       gridSize: 20,
-      pixelsPerCm: 100,
+      pixelsPerCm: DEFAULT_PIXELS_PER_CM,
+      origin: { ...DEFAULT_ORIGIN },
       compilerMode: 'fast',
       previewMode: 'fast',
     },
@@ -382,6 +447,10 @@ export function createPlot(
       { x: 2, y: 4 },
       { x: 3, y: 3 },
     ],
+    ...(values.expression !== undefined ? { expression: values.expression } : {}),
+    ...(values.title !== undefined ? { title: values.title } : {}),
+    ...(values.xLabel !== undefined ? { xLabel: values.xLabel } : {}),
+    ...(values.yLabel !== undefined ? { yLabel: values.yLabel } : {}),
     style: { ...DEFAULT_PLOT_STYLE, ...(values.style ?? {}) },
     layer: 'nodes',
     visible: true,
@@ -540,7 +609,11 @@ export function projectFromJson(input: unknown): Project {
     version: GRAPHIC_IR_VERSION,
     metadata: { ...base.metadata, ...(value.metadata ?? {}) },
     canvas: { ...base.canvas, ...(value.canvas ?? {}) },
-    settings: { ...base.settings, ...(value.settings ?? {}) },
+    settings: {
+      ...base.settings,
+      ...(value.settings ?? {}),
+      origin: { ...base.settings.origin, ...(value.settings?.origin ?? {}) },
+    },
     styles: value.styles ?? {},
     elements: Array.isArray(value.elements) ? (value.elements as DiagramElement[]) : [],
     rawTikzBlocks: Array.isArray(value.rawTikzBlocks)
@@ -596,11 +669,23 @@ export function elementBounds(
   return undefined;
 }
 
+/** Node text as shown on the canvas: common TeX escapes and line breaks are simplified. */
+export function displayText(text: string): string {
+  return text
+    .replace(/\\\\/gu, ' ')
+    .replace(/\\([%&#_$])/gu, '$1')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
 export function formatNumber(value: number, precision = 3): string {
   if (!Number.isFinite(value)) return '0';
   return Number(value.toFixed(precision)).toString();
 }
 
+export * from './color';
+export * from './geometry';
+export * from './style';
 export { layoutProject } from './layout';
 export type { LayoutDirection } from './layout';
 export {
