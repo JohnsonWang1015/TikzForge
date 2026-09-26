@@ -1,8 +1,9 @@
 'use client';
 
-import { Plus, Trash2 } from 'lucide-react';
+import { FileUp, Plus, Trash2 } from 'lucide-react';
 import type { PlotElement, Point } from '@tikzforge/graphic-ir';
 import { useProjectStore } from '@/stores/project-store';
+import { importPlotCsv } from '@/components/actions/file-actions';
 
 export function PlotEditor({ plot }: { plot: PlotElement }) {
   const updateElement = useProjectStore((state) => state.updateElement);
@@ -66,12 +67,22 @@ export function PlotEditor({ plot }: { plot: PlotElement }) {
           ))}
         </tbody>
       </table>
-      <button
-        className="button button-ghost"
-        onClick={() => updateData([...plot.data, { x: plot.data.length + 1, y: 0 }])}
-      >
-        <Plus size={12} /> Add point
-      </button>
+      <div className="inspector-actions">
+        <button
+          className="button button-ghost"
+          onClick={() => updateData([...plot.data, { x: plot.data.length + 1, y: 0 }])}
+        >
+          <Plus size={12} /> Add point
+        </button>
+        <button
+          className="button button-ghost"
+          onClick={() => void importPlotCsv(plot.id)}
+          title="Replace the data with the x,y columns of a CSV file"
+          data-testid="plot-import-csv"
+        >
+          <FileUp size={12} /> Import CSV…
+        </button>
+      </div>
     </div>
   );
 }

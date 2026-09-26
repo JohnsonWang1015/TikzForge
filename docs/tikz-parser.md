@@ -29,6 +29,10 @@ expands macros or executes anything.
   dashed/dotted, TikZ line widths, `font=` size commands and `\bfseries`, `text width`, `align`,
   shapes. Colors keep their xcolor expression. Options the IR does not model are kept in
   `extraOptions` and re-emitted verbatim; named styles are kept in `styleRefs`.
+- Node text that is only `\includegraphics[width=..,height=..]{file}` (both lengths, no other
+  graphics options, a plain relative file name) becomes an image node; the serializer's
+  `inner sep=0pt` belongs to the image and is not kept as an extra option. Anything else stays
+  node text.
 - A PGFPlots `axis` with exactly one `\addplot coordinates {...}` or `\addplot {expr}`; `at`,
   `anchor`, `width`, `height`, `title`, `xlabel`, `ylabel`, `ybar` and `only marks` are
   understood.
@@ -55,7 +59,8 @@ undefined nodes) are errors, and the editor keeps the last valid canvas until th
 
 `reconcileParsedProject` folds a new parse into the current project. Statements without a TikZ
 name keep their previous id (matched by position through the text diff, or by endpoints for
-edges), and IR-only state such as locks, visibility and groups is kept.
+edges), and IR-only state such as locks, visibility, groups and uploaded pictures (matched by
+image file name) is kept.
 
 ## Language service
 

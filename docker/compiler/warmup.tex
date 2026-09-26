@@ -1,7 +1,7 @@
 % Pre-warms the offline Tectonic cache baked into the compiler image. The runtime compiles with
-% --only-cached and has no network access, so every package, TikZ library and font shape/size the
-% TikzForge serializer can emit must be exercised here. The preamble must match PICTURE_PREAMBLE
-% in crates/tikz-serializer/src/lib.rs.
+% --only-cached and has no network access, so every package, TikZ library, font shape/size and
+% bundled graphic (example-image) the TikzForge serializer can emit must be exercised here. The
+% preamble must match PICTURE_PREAMBLE in crates/tikz-serializer/src/lib.rs.
 \documentclass{standalone}
 \usepackage{tikz}
 \usepackage{pgfplots}
@@ -23,6 +23,8 @@
   \begin{scope}[on background layer]
     \node[draw, fit=(a)(b)(c)(d), inner sep=4pt] {};
   \end{scope}
+  % Image nodes default to mwe's placeholder until the user uploads a file.
+  \node[inner sep=0pt] at (10,0) {\includegraphics[width=1cm,height=1cm]{example-image}};
   \foreach \size in {5,6,7,8,9,10,10.95,11,12,14,14.4,17,17.28,20,20.74,24.88,25} {
     \node[font=\fontsize{\size pt}{\size pt}\selectfont] at (0,-3-\size/4) {Aa $x^2_{i}$};
     \node[font=\bfseries\fontsize{\size pt}{\size pt}\selectfont] at (3,-3-\size/4) {Bb $\beta$};

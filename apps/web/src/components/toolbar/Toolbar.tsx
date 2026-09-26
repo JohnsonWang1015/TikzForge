@@ -61,11 +61,8 @@ export function Toolbar() {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark">Tz</div>
-        <div>
-          <div className="brand-title">TikzForge</div>
-          <div className="brand-subtitle">Scientific Diagram IDE</div>
-        </div>
+        <div className="brand-title">TikzForge</div>
+        <div className="brand-subtitle">Scientific Diagram IDE</div>
       </div>
       <div className="toolbar-group">
         <button

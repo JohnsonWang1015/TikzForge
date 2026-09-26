@@ -3,8 +3,16 @@
 TikzForge treats LaTeX as hostile input.
 
 - Browser render limits source to 512 KB and rejects shell escape, file input/output and include
-  primitives before compilation.
+  primitives before compilation. The one exception is `\includegraphics`, and only with a literal,
+  plain relative file name: one to four `/`-separated segments of letters, digits, `_`, `.` and
+  `-` that do not start with `.`. Absolute paths, `..`, macros as the file name and
+  `\includegraphics*` are rejected.
 - The Rust service repeats validation rather than trusting the web process.
+- Uploaded images travel with the render request as base64 and are checked again by the service:
+  at most 16 files, 2 MiB each and 8 MiB in total, unique plain relative names ending in `.png`,
+  `.jpg` or `.jpeg`, and bytes that start with the matching PNG or JPEG signature. They are written
+  only inside the per-request scratch directory, next to `main.tex`. The request body is capped at
+  16 MiB.
 - Child processes are spawned with argument arrays, not a shell, from a cleared environment in a
   per-request scratch directory that is removed afterwards. Compile and conversion are time-bounded
   and the returned log is size-bounded.

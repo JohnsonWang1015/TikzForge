@@ -1,8 +1,11 @@
 'use client';
 
-import { Settings2 } from 'lucide-react';
+import { useState } from 'react';
+import { Settings2, Trash2, Upload } from 'lucide-react';
 import {
+  DEFAULT_IMAGE_PATH,
   isEdgeElement,
+  isImagePath,
   isNodeElement,
   type EdgeElement,
   type NodeElement,
@@ -10,6 +13,7 @@ import {
 } from '@tikzforge/graphic-ir';
 import { useProjectStore } from '@/stores/project-store';
 import { PlotEditor } from '@/components/plots/PlotEditor';
+import { uploadImageToNode } from '@/components/actions/file-actions';
 
 function NumberField({
   label,
@@ -50,6 +54,60 @@ function ColorField({
         <input value={value} onChange={(event) => onChange(event.target.value)} />
       </div>
     </div>
+  );
+}
+
+/** Remounted (via `key`) whenever the stored file name changes, which resets the draft. */
+function ImageSection({ node }: { node: NodeElement }) {
+  const updateElement = useProjectStore((state) => state.updateElement);
+  const stored = node.source ?? DEFAULT_IMAGE_PATH;
+  const [draft, setDraft] = useState(stored);
+  const valid = isImagePath(draft.trim());
+  function commit(): void {
+    const value = draft.trim();
+    if (!isImagePath(value)) setDraft(stored);
+    else if (value !== node.source) updateElement(node.id, { source: value }, 'Rename image file');
+  }
+  return (
+    <section className="inspector-section">
+      <h3>Image</h3>
+      <div className="field">
+        <label>File name</label>
+        <input
+          value={draft}
+          aria-invalid={!valid}
+          className={valid ? undefined : 'field-invalid'}
+          data-testid="image-path"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+        />
+      </div>
+      <div className="inspector-actions">
+        <button
+          className="button button-ghost"
+          onClick={() => void uploadImageToNode(node.id)}
+          data-testid="image-upload"
+        >
+          <Upload size={12} /> {node.href ? 'Replace image…' : 'Upload image…'}
+        </button>
+        {node.href && (
+          <button
+            className="button button-ghost button-danger"
+            onClick={() => updateElement(node.id, { href: undefined }, 'Remove image')}
+          >
+            <Trash2 size={12} /> Remove
+          </button>
+        )}
+      </div>
+      <p className="field-hint">
+        {node.href
+          ? 'Shown on the canvas and sent along when compiling. For your own LaTeX build, put this file next to the .tex.'
+          : `PNG or JPEG up to 2 MB. Without an upload, LaTeX looks for this file next to the .tex; ${DEFAULT_IMAGE_PATH} is a placeholder every TeX installation ships.`}
+      </p>
+    </section>
   );
 }
 
@@ -132,45 +190,49 @@ function NodeInspector({ node }: { node: NodeElement }) {
           Dashed stroke
         </label>
       </section>
-      <section className="inspector-section">
-        <h3>Text</h3>
-        <div className="field-grid">
-          <div className="field full-field">
-            <label>Content</label>
-            <textarea
-              value={node.text}
-              onChange={(event) => update({ text: event.target.value }, 'Edit text')}
-            />
+      {node.type === 'image' ? (
+        <ImageSection key={`${node.id}:${node.source ?? ''}`} node={node} />
+      ) : (
+        <section className="inspector-section">
+          <h3>Text</h3>
+          <div className="field-grid">
+            <div className="field full-field">
+              <label>Content</label>
+              <textarea
+                value={node.text}
+                onChange={(event) => update({ text: event.target.value }, 'Edit text')}
+              />
+            </div>
+            <div className="field">
+              <label>Alignment</label>
+              <select
+                value={node.style.align}
+                onChange={(event) =>
+                  updateStyle({ align: event.target.value as NodeElement['style']['align'] })
+                }
+              >
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Weight</label>
+              <select
+                value={node.style.fontWeight}
+                onChange={(event) =>
+                  updateStyle({
+                    fontWeight: event.target.value as NodeElement['style']['fontWeight'],
+                  })
+                }
+              >
+                <option value="normal">Normal</option>
+                <option value="bold">Bold</option>
+              </select>
+            </div>
           </div>
-          <div className="field">
-            <label>Alignment</label>
-            <select
-              value={node.style.align}
-              onChange={(event) =>
-                updateStyle({ align: event.target.value as NodeElement['style']['align'] })
-              }
-            >
-              <option value="left">Left</option>
-              <option value="center">Center</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Weight</label>
-            <select
-              value={node.style.fontWeight}
-              onChange={(event) =>
-                updateStyle({
-                  fontWeight: event.target.value as NodeElement['style']['fontWeight'],
-                })
-              }
-            >
-              <option value="normal">Normal</option>
-              <option value="bold">Bold</option>
-            </select>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
       <section className="inspector-section">
         <h3>TikZ</h3>
         <div className="field-grid">

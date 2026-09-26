@@ -103,8 +103,12 @@ export interface NodeElement extends ElementBase {
   text: string;
   style: NodeStyle;
   position: ElementPosition;
-  /** Formula/Image elements can retain their original payload without losing visual fallback text. */
+  /**
+   * Formula/Image elements can retain their original payload without losing visual fallback text.
+   * For images this is the `\includegraphics` file name.
+   */
   source?: string;
+  /** Uploaded image content as a PNG or JPEG data URL; never serialized to TikZ. */
   href?: string;
   /**
    * `fixed` sizes are emitted as TikZ minimum width/height; `auto` nodes size to their text like
@@ -313,6 +317,28 @@ export const DEFAULT_NODE_STYLE: NodeStyle = {
   align: 'center',
 };
 
+/** mwe's placeholder picture, which every TeX distribution (and the compiler cache) ships. */
+export const DEFAULT_IMAGE_PATH = 'example-image';
+
+/**
+ * `\includegraphics` file names the IR and the compiler accept: up to four relative path segments
+ * of plain characters, so a name can't escape the compile directory or smuggle TeX.
+ */
+export function isImagePath(value: string | undefined): value is string {
+  return (
+    value !== undefined &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}){0,3}$/u.test(value)
+  );
+}
+
+/** The only image hrefs the IR accepts: inline PNG/JPEG data, so rendering never fetches. */
+export function isImageDataUrl(value: string | undefined): value is string {
+  return (
+    value !== undefined && /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/u.test(value)
+  );
+}
+
 export const DEFAULT_EDGE_STYLE: EdgeStyle = {
   stroke: '#91a4c6',
   lineWidth: 1.4,
@@ -378,21 +404,28 @@ export function createNode(
   existingIds: Iterable<string> = [],
 ): NodeElement {
   const id = values.id ?? createElementId(type === 'text' ? 'text' : 'node', existingIds);
-  return {
+  const image = type === 'image';
+  const node: NodeElement = {
     id,
     type,
     x: values.x ?? 240,
     y: values.y ?? 180,
     width: values.width ?? (type === 'text' || type === 'formula' ? 180 : 160),
-    height: values.height ?? (type === 'text' || type === 'formula' ? 42 : 64),
-    text: values.text ?? (type === 'text' ? 'Label' : 'Node'),
-    style: { ...DEFAULT_NODE_STYLE, ...(values.style ?? {}) },
+    height: values.height ?? (type === 'text' || type === 'formula' ? 42 : image ? 120 : 64),
+    text: values.text ?? (type === 'text' ? 'Label' : image ? '' : 'Node'),
+    style: {
+      ...DEFAULT_NODE_STYLE,
+      ...(image ? { fill: 'none', stroke: 'none', rounded: false } : {}),
+      ...(values.style ?? {}),
+    },
     position: values.position ?? { mode: 'absolute' },
     layer: type === 'text' || type === 'formula' ? 'labels' : 'nodes',
     visible: true,
     locked: false,
     rotation: 0,
   };
+  if (image) node.source = DEFAULT_IMAGE_PATH;
+  return node;
 }
 
 export function createArrow(
@@ -568,6 +601,24 @@ export function validateProject(project: Project): ValidationResult {
         line: 1,
         column: 1,
         code: 'IR_RAW_EDITABLE',
+      });
+    }
+    if (element.type === 'image' && element.source !== undefined && !isImagePath(element.source)) {
+      errors.push({
+        severity: 'error',
+        message: `Image "${element.id}" has an invalid file name.`,
+        line: 1,
+        column: 1,
+        code: 'IR_IMAGE_PATH',
+      });
+    }
+    if (element.type === 'image' && element.href !== undefined && !isImageDataUrl(element.href)) {
+      errors.push({
+        severity: 'error',
+        message: `Image "${element.id}" must embed a PNG or JPEG data URL.`,
+        line: 1,
+        column: 1,
+        code: 'IR_IMAGE_HREF',
       });
     }
     if (element.type === 'plot' && element.data.length === 0) {

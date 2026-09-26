@@ -9,11 +9,20 @@ export interface SavedSource {
   sourceMap: Record<string, { startOffset: number; endOffset: number }>;
 }
 
-export function saveProjectToLocalStorage(project: Project, source?: SavedSource): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PROJECT_KEY, JSON.stringify(project));
-  if (source) window.localStorage.setItem(SOURCE_KEY, JSON.stringify(source));
-  else window.localStorage.removeItem(SOURCE_KEY);
+/**
+ * Returns false when the browser refuses the write, e.g. when embedded images push the project
+ * past the storage quota. Autosave is best effort, so callers decide whether to tell the user.
+ */
+export function saveProjectToLocalStorage(project: Project, source?: SavedSource): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    window.localStorage.setItem(PROJECT_KEY, JSON.stringify(project));
+    if (source) window.localStorage.setItem(SOURCE_KEY, JSON.stringify(source));
+    else window.localStorage.removeItem(SOURCE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The TikZ text saved with the project, so reloading keeps the user's formatting. */
@@ -51,10 +60,14 @@ export function loadProjectFromLocalStorage(): Project | undefined {
 
 export function saveRecovery(project: Project): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(
-    RECOVERY_KEY,
-    JSON.stringify({ project, savedAt: new Date().toISOString() }),
-  );
+  try {
+    window.localStorage.setItem(
+      RECOVERY_KEY,
+      JSON.stringify({ project, savedAt: new Date().toISOString() }),
+    );
+  } catch {
+    // A recovery snapshot that doesn't fit is skipped; the edit itself already happened.
+  }
 }
 
 export function loadRecovery(): Project | undefined {

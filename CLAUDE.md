@@ -72,7 +72,7 @@ Monaco depends on browser globals, so it is loaded with `next/dynamic` and `ssr:
 
 ### Rendering and the compiler boundary
 
-`POST /api/render` (`apps/web/src/app/api/render/route.ts`) validates the source (`validateLatexSource`: 512 KB, no `\write18`/`\input`/`\include`/`\openin`/`\openout`/`shell-escape`). With `COMPILER_SERVICE_URL` set it calls the Rust service (20 s timeout), checks the response shape, and forwards 200/400/422. Any 5xx, network error, timeout or malformed body falls back to the fast renderer (`parseTikz` → `renderProjectToSvg({ fitToContent: true })` → `sanitizeSvg`). Every response carries `renderer: 'tectonic' | 'fast'`; the UI (`CompilePreview` in `components/preview/PreviewPanel.tsx`, shown in the Export dialog) labels the preview and uses a white background for Tectonic output.
+`POST /api/render` (`apps/web/src/app/api/render/route.ts`) validates the source (`validateLatexSource`: 512 KB, no `\write18`/`\input`/`\include`/`\openin`/`\openout`/`shell-escape`; `\includegraphics` only with a plain relative file name) and any uploaded `images` (`validateImageAttachments`: PNG/JPEG, 2 MB each), which are forwarded to the compiler or drawn by the fast renderer. With `COMPILER_SERVICE_URL` set it calls the Rust service (20 s timeout), checks the response shape, and forwards 200/400/422. Any 5xx, network error, timeout or malformed body falls back to the fast renderer (`parseTikz` → `renderProjectToSvg({ fitToContent: true })` → `sanitizeSvg`). Every response carries `renderer: 'tectonic' | 'fast'`; the UI (`CompilePreview` in `components/preview/PreviewPanel.tsx`, shown in the Export dialog) labels the preview and uses a white background for Tectonic output.
 
 The Rust crates are **not** a port of the TS packages:
 
@@ -84,7 +84,7 @@ The Rust crates are **not** a port of the TS packages:
 
 Keep these in sync when changing them:
 
-- The forbidden-construct list: `apps/web/src/lib/security.ts` and `crates/tikz-serializer/src/lib.rs`.
+- The forbidden-construct list and image attachment rules: `apps/web/src/lib/security.ts` and `crates/tikz-serializer/src/lib.rs`.
 - The preamble: `TIKZ_PREAMBLE` (TS LaTeX export), `PICTURE_PREAMBLE` (Rust) and `docker/compiler/warmup.tex`. The image's package cache is built from `warmup.tex`, so anything the serializer starts emitting (a package, TikZ library or font) must be added there or offline compiles fail.
 
 `POST /api/generate` uses a deterministic local "AI" provider (`apps/web/src/lib/ai.ts`) that splits the prompt into labelled nodes. It is not an LLM; it is the seam where one would plug in. Its output is always validated as IR.

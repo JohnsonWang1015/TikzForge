@@ -1,7 +1,11 @@
 import { parseTikz } from '@tikzforge/tikz-parser';
 import { renderProjectToSvg, sanitizeSvg } from '@tikzforge/svg-renderer';
-import type { Diagnostic } from '@tikzforge/graphic-ir';
-import { validateLatexSource } from '@/lib/security';
+import type { Diagnostic, Project } from '@tikzforge/graphic-ir';
+import {
+  validateImageAttachments,
+  validateLatexSource,
+  type ImageAttachment,
+} from '@/lib/security';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +28,7 @@ interface RenderResult {
 
 interface RenderBody {
   source?: unknown;
+  images?: unknown;
 }
 
 function isRenderBody(value: unknown): value is RenderBody {
@@ -66,13 +71,14 @@ function compilerResult(value: unknown): RenderResult | undefined {
 async function compileRemotely(
   serviceUrl: string,
   source: string,
+  images: ImageAttachment[],
 ): Promise<{ status: number; result: RenderResult } | { unavailable: string }> {
   let remote: Response;
   try {
     remote = await fetch(`${serviceUrl.replace(/\/$/u, '')}/api/render`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ source }),
+      body: JSON.stringify({ source, images }),
       signal: AbortSignal.timeout(COMPILER_TIMEOUT_MS),
       cache: 'no-store',
     });
@@ -95,7 +101,30 @@ async function compileRemotely(
   return { status: remote.status, result };
 }
 
-function fastRender(source: string, started: number, note?: string): Response {
+/** Gives parsed image nodes the uploaded picture LaTeX would find under their file name. */
+function withImages(project: Project, images: ImageAttachment[]): Project {
+  if (!images.length) return project;
+  return {
+    ...project,
+    elements: project.elements.map((element) => {
+      if (element.type !== 'image' || !element.source) return element;
+      const image = images.find(
+        ({ name }) =>
+          name === element.source || name.replace(/\.(?:png|jpe?g)$/iu, '') === element.source,
+      );
+      if (!image) return element;
+      const mime = /\.png$/iu.test(image.name) ? 'image/png' : 'image/jpeg';
+      return { ...element, href: `data:${mime};base64,${image.data}` };
+    }),
+  };
+}
+
+function fastRender(
+  source: string,
+  images: ImageAttachment[],
+  started: number,
+  note?: string,
+): Response {
   const parsed = parseTikz(source);
   if (!parsed.valid) {
     return Response.json(
@@ -110,7 +139,9 @@ function fastRender(source: string, started: number, note?: string): Response {
   }
   return Response.json({
     success: true,
-    svg: sanitizeSvg(renderProjectToSvg(parsed.project, { fitToContent: true })),
+    svg: sanitizeSvg(
+      renderProjectToSvg(withImages(parsed.project, images), { fitToContent: true }),
+    ),
     compileTime: Math.round(performance.now() - started),
     errors: [],
     log:
@@ -147,7 +178,8 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const securityErrors = validateLatexSource(body.source);
+  const attachments = validateImageAttachments(body.images);
+  const securityErrors = [...validateLatexSource(body.source), ...attachments.errors];
   if (securityErrors.some((error) => error.severity === 'error')) {
     return Response.json(
       { success: false, errors: securityErrors, log: 'Rejected by compiler security policy.' },
@@ -155,11 +187,13 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
   const compilerServiceUrl = process.env.COMPILER_SERVICE_URL;
-  if (!compilerServiceUrl) return fastRender(body.source, started);
-  const remote = await compileRemotely(compilerServiceUrl, body.source);
+  const images = attachments.images;
+  if (!compilerServiceUrl) return fastRender(body.source, images, started);
+  const remote = await compileRemotely(compilerServiceUrl, body.source, images);
   if ('unavailable' in remote)
     return fastRender(
       body.source,
+      images,
       started,
       `${remote.unavailable}; showing the fast preview instead.`,
     );

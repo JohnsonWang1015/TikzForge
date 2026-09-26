@@ -1,17 +1,35 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type {
+  MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
   WheelEvent as ReactWheelEvent,
 } from 'react';
-import { Grid2X2, Minus, Plus, Maximize2 } from 'lucide-react';
 import {
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
+  FileUp,
+  Grid2X2,
+  Group,
+  ImageUp,
+  Maximize2,
+  Minus,
+  MoveRight,
+  Plus,
+  SquareDashedMousePointer,
+  Trash2,
+  Ungroup,
+} from 'lucide-react';
+import {
+  DEFAULT_IMAGE_PATH,
   displayColor,
   displayText,
   edgeGeometry,
   isEdgeElement,
+  isImageDataUrl,
   isNodeElement,
   plotGeometry,
   snapValue,
@@ -26,6 +44,8 @@ import {
 } from '@tikzforge/graphic-ir';
 import { useProjectStore } from '@/stores/project-store';
 import { useUiStore } from '@/stores/ui-store';
+import { importPlotCsv, uploadImageToNode } from '@/components/actions/file-actions';
+import { CanvasContextMenu, type ContextMenuSection } from './CanvasContextMenu';
 
 interface DragState {
   kind: 'move' | 'resize' | 'pan';
@@ -39,6 +59,16 @@ interface DragState {
 
 type Lookup = (id: string) => DiagramElement | undefined;
 
+interface MenuState {
+  /** Position inside the canvas stage. */
+  x: number;
+  y: number;
+  /** The element that was right-clicked; undefined for the empty canvas. */
+  targetId?: string;
+}
+
+const ELEMENT_TEST_ID = 'canvas-element-';
+
 function nodeShape(node: NodeElement): ReactNode {
   const x = node.x - node.width / 2;
   const y = node.y - node.height / 2;
@@ -48,6 +78,17 @@ function nodeShape(node: NodeElement): ReactNode {
     strokeWidth: node.style.lineWidth,
     strokeDasharray: node.style.dashed ? '6 4' : undefined,
   };
+  if (node.type === 'image') {
+    const box = { x, y, width: node.width, height: node.height };
+    return isImageDataUrl(node.href) ? (
+      <>
+        <image href={node.href} {...box} preserveAspectRatio="none" />
+        <rect {...box} {...common} fill="none" />
+      </>
+    ) : (
+      <rect {...box} rx={4} fill="#101827" stroke="#6f83a7" strokeWidth={1} strokeDasharray="6 4" />
+    );
+  }
   if (node.type === 'coordinate')
     return (
       <g stroke={displayColor(node.style.stroke, 'stroke')} strokeWidth={1.2}>
@@ -73,7 +114,7 @@ function nodeShape(node: NodeElement): ReactNode {
       y={y}
       width={node.width}
       height={node.height}
-      rx={node.type === 'image' ? 8 : node.style.rounded ? Math.min(10, node.height / 4) : 0}
+      rx={node.style.rounded ? Math.min(10, node.height / 4) : 0}
       {...common}
     />
   );
@@ -101,9 +142,9 @@ function renderNode(
       onPointerDown={onPointerDown ? (event) => onPointerDown(event, node.id) : undefined}
     >
       {nodeShape(node)}
-      {node.type === 'image' && (
+      {node.type === 'image' && !isImageDataUrl(node.href) && (
         <text x={node.x} y={node.y + 4} textAnchor="middle" fill="#8fa1be" fontSize={11}>
-          Image placeholder
+          {node.source || DEFAULT_IMAGE_PATH}
         </text>
       )}
       {text && node.type !== 'image' && (
@@ -264,6 +305,8 @@ function renderPreview(shape: PreviewShape, lookup: Lookup) {
 export function DiagramCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const project = useProjectStore((state) => state.project);
   const selectedIds = useProjectStore((state) => state.selectedIds);
   const select = useProjectStore((state) => state.select);
@@ -283,6 +326,14 @@ export function DiagramCanvas() {
   const clearSelection = useProjectStore((state) => state.clearSelection);
   const updateElementTransient = useProjectStore((state) => state.updateElementTransient);
   const commitInteraction = useProjectStore((state) => state.commitInteraction);
+  const duplicateSelected = useProjectStore((state) => state.duplicateSelected);
+  const deleteSelected = useProjectStore((state) => state.deleteSelected);
+  const copySelected = useProjectStore((state) => state.copySelected);
+  const pasteClipboard = useProjectStore((state) => state.pasteClipboard);
+  const groupSelected = useProjectStore((state) => state.groupSelected);
+  const ungroupSelected = useProjectStore((state) => state.ungroupSelected);
+  const selectAll = useProjectStore((state) => state.selectAll);
+  const addArrow = useProjectStore((state) => state.addArrow);
   const zoom = useUiStore((state) => state.zoom);
   const pan = useUiStore((state) => state.pan);
   const isPanning = useUiStore((state) => state.isPanning);
@@ -302,6 +353,11 @@ export function DiagramCanvas() {
 
   function startElementDrag(event: ReactPointerEvent<SVGGElement>, id: string): void {
     event.stopPropagation();
+    // A right-click keeps a multi-selection that includes the element, for the context menu.
+    if (event.button === 2) {
+      if (!selectedIds.includes(id)) select(id);
+      return;
+    }
     const additive = event.shiftKey || event.metaKey || event.ctrlKey;
     select(id, additive);
     const ids = additive ? [...new Set([...selectedIds, id])] : [id];
@@ -423,6 +479,121 @@ export function DiagramCanvas() {
       event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
+  function openContextMenu(event: ReactMouseEvent<SVGSVGElement>): void {
+    event.preventDefault();
+    const stage = event.currentTarget.parentElement?.getBoundingClientRect();
+    if (!stage) return;
+    const hit =
+      event.target instanceof Element
+        ? event.target.closest(`[data-testid^="${ELEMENT_TEST_ID}"]`)
+        : null;
+    const targetId = hit?.getAttribute('data-testid')?.slice(ELEMENT_TEST_ID.length);
+    if (targetId && !useProjectStore.getState().selectedIds.includes(targetId)) select(targetId);
+    setMenu({ x: event.clientX - stage.left, y: event.clientY - stage.top, targetId });
+  }
+
+  function menuSections(targetId: string | undefined): ContextMenuSection[] {
+    const paste = {
+      label: 'Paste',
+      icon: <ClipboardPaste size={13} />,
+      shortcut: 'Ctrl+V',
+      onSelect: () => {
+        void navigator.clipboard
+          ?.readText()
+          .then((payload) => {
+            if (payload) pasteClipboard(payload);
+          })
+          .catch(() => undefined);
+      },
+    };
+    const target = targetId
+      ? project.elements.find((element) => element.id === targetId)
+      : undefined;
+    if (!target)
+      return [
+        [
+          paste,
+          {
+            label: 'Select all',
+            icon: <SquareDashedMousePointer size={13} />,
+            shortcut: 'Ctrl+A',
+            onSelect: selectAll,
+          },
+        ],
+        [{ label: 'Reset view', icon: <Maximize2 size={13} />, onSelect: resetView }],
+      ];
+    const selection = project.elements.filter((element) => selectedIds.includes(element.id));
+    const nodes = selectedIds.flatMap((id) => {
+      const element = selection.find((candidate) => candidate.id === id);
+      return element && isNodeElement(element) ? [element] : [];
+    });
+    const [from, to] = nodes;
+    return [
+      [
+        ...(target.type === 'image'
+          ? [
+              {
+                label: target.href ? 'Replace image…' : 'Upload image…',
+                icon: <ImageUp size={13} />,
+                onSelect: () => void uploadImageToNode(target.id),
+              },
+            ]
+          : []),
+        ...(target.type === 'plot'
+          ? [
+              {
+                label: 'Import CSV data…',
+                icon: <FileUp size={13} />,
+                onSelect: () => void importPlotCsv(target.id),
+              },
+            ]
+          : []),
+      ],
+      [
+        ...(nodes.length === 2 && from && to
+          ? [
+              {
+                label: `Connect ${from.id} → ${to.id}`,
+                icon: <MoveRight size={13} />,
+                onSelect: () => addArrow(from.id, to.id),
+              },
+            ]
+          : []),
+        ...(selection.length >= 2
+          ? [{ label: 'Group', icon: <Group size={13} />, onSelect: groupSelected }]
+          : []),
+        ...(selection.some((element) => element.type === 'group')
+          ? [{ label: 'Ungroup', icon: <Ungroup size={13} />, onSelect: ungroupSelected }]
+          : []),
+      ],
+      [
+        {
+          label: 'Duplicate',
+          icon: <CopyPlus size={13} />,
+          shortcut: 'Ctrl+D',
+          onSelect: duplicateSelected,
+        },
+        {
+          label: 'Copy',
+          icon: <Copy size={13} />,
+          shortcut: 'Ctrl+C',
+          onSelect: () =>
+            void navigator.clipboard?.writeText(copySelected()).catch(() => undefined),
+        },
+        paste,
+      ],
+      [
+        {
+          label: selection.length > 1 ? `Delete ${selection.length} items` : 'Delete',
+          icon: <Trash2 size={13} />,
+          shortcut: 'Del',
+          danger: true,
+          onSelect: deleteSelected,
+        },
+      ],
+    ];
+  }
+
   function onWheel(event: ReactWheelEvent<SVGSVGElement>): void {
     event.preventDefault();
     setZoom(zoom * (event.deltaY > 0 ? 0.9 : 1.1));
@@ -480,6 +651,7 @@ export function DiagramCanvas() {
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onWheel={onWheel}
+          onContextMenu={openContextMenu}
         >
           <defs>
             <pattern
@@ -581,8 +753,16 @@ export function DiagramCanvas() {
           </g>
         </svg>
         <div className="canvas-hint">
-          Drag to move · Shift-click multi-select · Wheel to zoom · Ctrl/Cmd+D duplicate
+          Drag to move · Shift-click multi-select · Right-click for actions · Wheel to zoom
         </div>
+        {menu && (
+          <CanvasContextMenu
+            x={menu.x}
+            y={menu.y}
+            sections={menuSections(menu.targetId)}
+            onClose={closeMenu}
+          />
+        )}
       </div>
     </section>
   );

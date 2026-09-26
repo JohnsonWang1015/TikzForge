@@ -7,7 +7,13 @@ IR. Every response carries `renderer: "tectonic" | "fast"` so the UI can say whi
 The Rust Axum service exposes:
 
 - `GET /health` → `{ "status": "ok", "tectonic": true | false }`
-- `POST /api/render` with `{ "source": "..." }`
+- `POST /api/render` with `{ "source": "...", "images": [{ "name": "fig.png", "data": "<base64>" }] }`
+
+`images` is optional. Each entry is a file the source includes with `\includegraphics{name}`;
+`data` is padded standard base64 of the PNG or JPEG bytes. The service validates the list (see
+[security.md](security.md)) and writes each file at its relative `name` inside the scratch
+directory before compiling. New image nodes point at mwe's `example-image`, which the offline cache
+includes.
 
 ## Compilation
 
@@ -22,6 +28,8 @@ When `TECTONIC_BIN` points at a Tectonic binary, the service:
    explicitly because of the cleared environment;
 3. converts the PDF with `pdftocairo -svg` (5 s timeout);
 4. maps TeX error lines back onto the submitted source by subtracting the preamble length.
+
+A missing image file is an ordinary LaTeX error (422) that points at the `\includegraphics` line.
 
 ## Responses
 

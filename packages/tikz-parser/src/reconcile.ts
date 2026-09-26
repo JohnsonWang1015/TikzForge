@@ -114,6 +114,12 @@ export function reconcileParsedProject({
     take(element, edited);
   }
 
+  // Uploaded pictures live only in the IR; text edits find them again by file name.
+  const imageData = new Map<string, string>();
+  for (const element of current.elements)
+    if (element.type === 'image' && element.source && element.href)
+      imageData.set(element.source, element.href);
+
   const used = new Set<string>();
   const sourceMap: SourceMap = {};
   const elements = parsed.project.elements.map((element) => {
@@ -132,6 +138,10 @@ export function reconcileParsedProject({
     } as DiagramElement;
     if (merged.type === 'raw-tikz') merged.locked = true;
     if (merged.type === 'plot' && match?.type === 'plot') merged.style = match.style;
+    if (merged.type === 'image' && merged.source && !merged.href) {
+      const href = imageData.get(merged.source);
+      if (href) merged.href = href;
+    }
     return merged;
   });
 

@@ -30,6 +30,7 @@ import {
 } from '@tikzforge/graphic-ir';
 import { parseTikz, reconcileParsedProject, type SourceMap } from '@tikzforge/tikz-parser';
 import { patchSource, serializeProjectWithMap } from '@tikzforge/tikz-serializer';
+import { imagePathAfterUpload, type UploadedImage } from '@/lib/image-upload';
 import {
   loadProjectFromLocalStorage,
   loadSourceFromLocalStorage,
@@ -74,6 +75,8 @@ interface ProjectState {
   addNode: (type: PrimitiveNodeType) => void;
   addArrow: (from?: string, to?: string, type?: EdgeElement['type']) => void;
   addPlot: () => void;
+  /** Embeds an uploaded picture in an image node, keeping its width and the picture's ratio. */
+  applyImageUpload: (id: string, upload: UploadedImage) => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
   groupSelected: () => void;
@@ -295,6 +298,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         new AddElementCommand('Add plot', plot),
       );
       set({ selectedIds: [plot.id] });
+    },
+    applyImageUpload: (id, upload) => {
+      const node = get().project.elements.find((element) => element.id === id);
+      if (!node || node.type !== 'image') return;
+      const ratio = upload.naturalWidth > 0 ? upload.naturalHeight / upload.naturalWidth : 1;
+      get().updateElement(
+        id,
+        {
+          href: upload.href,
+          source: imagePathAfterUpload(node.source, upload),
+          height: Math.max(20, Math.round(node.width * ratio)),
+        },
+        'Upload image',
+      );
     },
     deleteSelected: () => {
       const ids = new Set(get().selectedIds);
@@ -545,8 +562,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     resetDiagnostics: () => set({ diagnostics: [] }),
     save: () => {
       const { project, mappedSource, sourceMap } = get();
-      saveProjectToLocalStorage(project, { source: mappedSource, sourceMap });
-      set({ lastSavedAt: new Date().toISOString() });
+      if (saveProjectToLocalStorage(project, { source: mappedSource, sourceMap }))
+        set({ lastSavedAt: new Date().toISOString() });
     },
     load: () => {
       const loaded = loadProjectFromLocalStorage();

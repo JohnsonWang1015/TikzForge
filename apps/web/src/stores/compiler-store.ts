@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import type { Diagnostic } from '@tikzforge/graphic-ir';
+import { imageAttachments } from '@/lib/image-upload';
 import { useProjectStore } from './project-store';
 
 /** `tectonic` is real LaTeX output from the compiler service; `fast` is the IR preview. */
@@ -24,12 +25,12 @@ export const useCompilerStore = create<CompilerState>((set) => ({
   errors: [],
   compile: async () => {
     set({ status: 'compiling', errors: [], log: '' });
-    const source = useProjectStore.getState().source;
+    const { project, source } = useProjectStore.getState();
     try {
       const response = await fetch('/api/render', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ source }),
+        body: JSON.stringify({ source, images: imageAttachments(project) }),
       });
       const body = (await response.json()) as {
         success?: boolean;

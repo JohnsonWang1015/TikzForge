@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import { ComponentSidebar } from '@/components/sidebar/ComponentSidebar';
 import { DiagramCanvas } from '@/components/canvas/DiagramCanvas';
 import { TikzEditor } from '@/components/editor/TikzEditor';
 import { PropertyInspector } from '@/components/inspector/PropertyInspector';
 import { Toolbar } from '@/components/toolbar/Toolbar';
 import { ModalLayer } from '@/components/dialogs/ExportDialog';
+import { PanelResizer } from '@/components/layout/PanelResizer';
 import { useProjectStore } from '@/stores/project-store';
 import { useCompilerStore } from '@/stores/compiler-store';
+import { useUiStore } from '@/stores/ui-store';
 
 export function StudioShell() {
   const project = useProjectStore((state) => state.project);
@@ -28,10 +31,13 @@ export function StudioShell() {
   const compileTime = useCompilerStore((state) => state.compileTime);
   const compileRenderer = useCompilerStore((state) => state.renderer);
   const compileErrors = useCompilerStore((state) => state.errors);
+  const panelWidths = useUiStore((state) => state.panelWidths);
+  const loadPanelWidths = useUiStore((state) => state.loadPanelWidths);
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadPanelWidths();
+  }, [load, loadPanelWidths]);
   useEffect(() => {
     const timer = setTimeout(() => save(), 500);
     return () => clearTimeout(timer);
@@ -132,9 +138,19 @@ export function StudioShell() {
   return (
     <main className="studio">
       <Toolbar />
-      <div className="workspace">
+      <div
+        className="workspace"
+        style={
+          {
+            '--sidebar-width': `${panelWidths.sidebar}px`,
+            '--inspector-width': `${panelWidths.inspector}px`,
+          } as CSSProperties
+        }
+      >
         <ComponentSidebar />
+        <PanelResizer panel="sidebar" />
         <DiagramCanvas />
+        <PanelResizer panel="inspector" />
         <aside className="inspector">
           <TikzEditor />
           <PropertyInspector />

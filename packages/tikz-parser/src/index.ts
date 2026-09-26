@@ -8,6 +8,7 @@ import {
   createNode,
   createPlot,
   isEdgeElement,
+  isImagePath,
   isNodeElement,
   nodeAnchorPoint,
   parseTikzColor,
@@ -735,6 +736,33 @@ function nodeSize(
   };
 }
 
+interface ImageContent {
+  path: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * `\includegraphics[width=…,height=…]{file}` node text becomes an image node. Other graphics
+ * options or a missing dimension would not survive re-serialization, so those stay text.
+ */
+function imageContent(ctx: Context, content: string): ImageContent | undefined {
+  const match = /^\\includegraphics\s*(?:\[([^[\]]*)\])?\s*\{([^{}]*)\}$/u.exec(content);
+  const path = match?.[2];
+  if (!match || !isImagePath(path)) return undefined;
+  const size: { width?: number; height?: number } = {};
+  for (const option of splitDepthZero(match[1] ?? '', ',')) {
+    if (!option.trim()) continue;
+    const [key = '', value] = option.split('=').map((part) => part.trim());
+    const length = /[a-z]\s*$/iu.test(value ?? '') ? lengthToCm(value) : undefined;
+    if ((key !== 'width' && key !== 'height') || length === undefined || length <= 0)
+      return undefined;
+    size[key] = length * ctx.settings.pixelsPerCm;
+  }
+  if (size.width === undefined || size.height === undefined) return undefined;
+  return { path, width: size.width, height: size.height };
+}
+
 function parseNodeStatement(
   ctx: Context,
   text: string,
@@ -856,6 +884,7 @@ function parseNodeStatement(
     );
 
   let element: NodeElement;
+  let extras = interpreted.extras;
   if (command === 'coordinate') {
     element = createNode('coordinate', {
       id,
@@ -871,16 +900,34 @@ function parseNodeStatement(
     const minimumWidth = interpreted.definition.minimumWidth ?? resolved.minimumWidth;
     const minimumHeight = interpreted.definition.minimumHeight ?? resolved.minimumHeight;
     const nodeText = content ?? '';
-    element = createNode(shape, {
-      id,
-      text: nodeText,
-      style,
-      ...nodeSize(shape, nodeText, style, minimumWidth, minimumHeight),
-    });
-    element.sizeMode = minimumWidth !== undefined || minimumHeight !== undefined ? 'fixed' : 'auto';
+    const image = shape === 'rectangle' ? imageContent(ctx, nodeText) : undefined;
+    if (image) {
+      element = createNode('image', {
+        id,
+        text: '',
+        style,
+        width: image.width,
+        height: image.height,
+      });
+      element.source = image.path;
+      element.sizeMode = 'fixed';
+      // The serializer always emits this for images, so it is part of the image, not an extra.
+      extras = extras.filter(
+        (option) => !/^inner sep\s*=\s*0(?:\.0*)?(?:pt|cm|mm)?$/u.test(option.trim()),
+      );
+    } else {
+      element = createNode(shape, {
+        id,
+        text: nodeText,
+        style,
+        ...nodeSize(shape, nodeText, style, minimumWidth, minimumHeight),
+      });
+      element.sizeMode =
+        minimumWidth !== undefined || minimumHeight !== undefined ? 'fixed' : 'auto';
+    }
     if (interpreted.refs.length) element.styleRefs = interpreted.refs;
   }
-  if (interpreted.extras.length) element.extraOptions = interpreted.extras;
+  if (extras.length) element.extraOptions = extras;
   if (interpreted.relative) {
     element.position = { mode: 'relative', ...interpreted.relative };
     const target = lookupNode(ctx, interpreted.relative.target);

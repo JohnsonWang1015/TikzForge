@@ -8,6 +8,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderRequest {
     pub source: String,
+    /// Image files the source includes with `\includegraphics`, written next to `main.tex`.
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
+}
+
+/// One uploaded image: `name` is the relative path the source refers to and `data` is standard
+/// padded base64 of the file bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageAttachment {
+    pub name: String,
+    pub data: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,7 +71,7 @@ pub struct RenderResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileError, RenderResponse, Renderer};
+    use super::{CompileError, RenderRequest, RenderResponse, Renderer};
 
     #[test]
     fn serializes_the_web_render_contract() {
@@ -79,5 +90,19 @@ mod tests {
         assert_eq!(json["errors"][0]["severity"], "error");
         assert_eq!(json["errors"][0]["line"], 3);
         assert_eq!(json["errors"][0]["column"], 1);
+    }
+
+    #[test]
+    fn deserializes_the_render_request_contract() {
+        let bare: RenderRequest =
+            serde_json::from_str(r#"{"source":"x"}"#).expect("images are optional");
+        assert!(bare.images.is_empty());
+        let request: RenderRequest = serde_json::from_str(
+            r#"{"source":"x","images":[{"name":"fig.png","data":"iVBORw0KGgo="}]}"#,
+        )
+        .expect("deserializable");
+        assert_eq!(request.images.len(), 1);
+        assert_eq!(request.images[0].name, "fig.png");
+        assert_eq!(request.images[0].data, "iVBORw0KGgo=");
     }
 }

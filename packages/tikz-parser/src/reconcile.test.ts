@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GroupElement } from '@tikzforge/graphic-ir';
+import type { GroupElement, NodeElement } from '@tikzforge/graphic-ir';
 import { parseTikz } from './index';
 import { reconcileParsedProject } from './reconcile';
 
@@ -78,5 +78,38 @@ describe('reconcileParsedProject', () => {
     const arrow = project.elements.find((element) => element.id === 'edge_canvas');
     expect(arrow).toMatchObject({ from: 'a', to: 'b' });
     expect(sourceMap.edge_canvas).toBeDefined();
+  });
+
+  it('keeps an uploaded picture when the image statement is edited as text', () => {
+    const source = String.raw`\begin{tikzpicture}
+  \node[inner sep=0pt] at (0,0) {\includegraphics[width=2cm,height=1cm]{fig.png}};
+\end{tikzpicture}`;
+    const current = parseTikz(source);
+    const image = current.project.elements[0] as NodeElement;
+    expect(image).toMatchObject({ type: 'image', source: 'fig.png', sizeMode: 'fixed' });
+    const href =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==';
+    const next = source.replace('width=2cm', 'width=4cm');
+    const { project } = reconcileParsedProject({
+      current: { ...current.project, elements: [{ ...image, href }] },
+      currentMap: current.sourceMap,
+      previousSource: source,
+      parsed: parseTikz(next),
+      source: next,
+    });
+    expect(project.elements[0]).toMatchObject({ type: 'image', href, width: 200 });
+  });
+
+  it('keeps \\includegraphics text it cannot size as ordinary node text', () => {
+    for (const content of [
+      String.raw`\includegraphics[width=2cm]{fig.png}`,
+      String.raw`\includegraphics[scale=2,width=1cm,height=1cm]{fig.png}`,
+      String.raw`\includegraphics[width=1cm,height=1cm]{../fig.png}`,
+    ]) {
+      const parsed = parseTikz(
+        `\\begin{tikzpicture}\\node at (0,0) {${content}};\\end{tikzpicture}`,
+      );
+      expect(parsed.project.elements[0]?.type, content).toBe('rectangle');
+    }
   });
 });

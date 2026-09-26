@@ -1,5 +1,5 @@
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -13,12 +13,16 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tikzforge_graphic_ir::{CompileError, RenderRequest, RenderResponse, Renderer};
-use tikzforge_tikz_serializer::{document_source, parse_compile_errors, pdf_path, validate_source};
+use tikzforge_tikz_serializer::{
+    document_source, parse_compile_errors, pdf_path, validate_images, validate_source,
+};
 use tokio::process::Command;
 use tokio::time::timeout;
 
 const CHILD_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const MAX_LOG_BYTES: usize = 64 * 1024;
+/// Source plus base64 image attachments (at most 8 MiB decoded, about 11 MiB encoded).
+const MAX_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 
 struct Tectonic {
     binary: PathBuf,
@@ -134,6 +138,7 @@ async fn compile(
     tectonic: &Tectonic,
     state: &AppState,
     source: &str,
+    images: &[(String, Vec<u8>)],
     started: Instant,
 ) -> Result<RenderResponse, Unavailable> {
     let scratch = ScratchDir::create().map_err(|error| {
@@ -151,6 +156,20 @@ async fn compile(
             format!("Could not write the LaTeX document: {error}"),
         )
     })?;
+    // Names are validated plain relative paths, so they stay inside the scratch directory.
+    for (name, bytes) in images {
+        let path = directory.join(name);
+        let written = match path.parent() {
+            Some(parent) => fs::create_dir_all(parent).and_then(|()| fs::write(&path, bytes)),
+            None => fs::write(&path, bytes),
+        };
+        written.map_err(|error| {
+            Unavailable::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Could not write image {name}: {error}"),
+            )
+        })?;
+    }
 
     let mut command = restricted_command(&tectonic.binary, directory);
     command
@@ -279,6 +298,21 @@ async fn render(
             )),
         );
     }
+    let images = match validate_images(&request.images) {
+        Ok(images) => images,
+        Err(errors) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(response(
+                    false,
+                    None,
+                    started,
+                    "Images rejected by compiler security policy.".into(),
+                    errors,
+                )),
+            )
+        }
+    };
     let Some(tectonic) = &state.tectonic else {
         let log = "LaTeX compilation is unavailable: TECTONIC_BIN is unset or not a file";
         return (
@@ -292,7 +326,7 @@ async fn render(
             )),
         );
     };
-    match compile(tectonic, &state, &request.source, started).await {
+    match compile(tectonic, &state, &request.source, &images, started).await {
         Ok(result) => (
             if result.success {
                 StatusCode::OK
@@ -332,6 +366,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/render", post(render))
+        .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .with_state(state);
     let address: SocketAddr = "0.0.0.0:8080".parse().expect("valid listen address");
     let listener = tokio::net::TcpListener::bind(address)

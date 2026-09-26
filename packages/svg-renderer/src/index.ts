@@ -1,8 +1,10 @@
 import {
+  DEFAULT_IMAGE_PATH,
   displayColor,
   displayText,
   edgeGeometry,
   isEdgeElement,
+  isImageDataUrl,
   isNodeElement,
   plotGeometry,
   type DiagramElement,
@@ -90,6 +92,15 @@ function number(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+/** The uploaded picture, or a dashed box naming the file LaTeX will include. */
+function imageSvg(node: NodeElement, paint: string): string {
+  const box = `x="${number(node.x - node.width / 2)}" y="${number(node.y - node.height / 2)}" width="${number(node.width)}" height="${number(node.height)}"`;
+  if (isImageDataUrl(node.href))
+    return `<image ${box} href="${node.href}" preserveAspectRatio="none" /><rect ${box} ${paint.replace(/fill="[^"]*"/u, 'fill="none"')} />`;
+  const name = node.source || DEFAULT_IMAGE_PATH;
+  return `<rect ${box} fill="#101827" stroke="#6f83a7" stroke-width="1" stroke-dasharray="6 4" /><text x="${number(node.x)}" y="${number(node.y + 4)}" text-anchor="middle" fill="#8fa1be" font-size="11">${escapeXml(name)}</text>`;
+}
+
 function nodeSvg(node: NodeElement, opacity = 1): string {
   const x = node.x - node.width / 2;
   const y = node.y - node.height / 2;
@@ -97,18 +108,20 @@ function nodeSvg(node: NodeElement, opacity = 1): string {
   const stroke = displayColor(node.style.stroke, 'stroke');
   const paint = `fill="${fill}" stroke="${stroke}" stroke-width="${number(node.style.lineWidth)}" stroke-dasharray="${node.style.dashed ? '6 4' : 'none'}"`;
   const shape =
-    node.type === 'coordinate'
-      ? `<path d="M ${number(node.x - 5)} ${number(node.y)} H ${number(node.x + 5)} M ${number(node.x)} ${number(node.y - 5)} V ${number(node.y + 5)}" stroke="${stroke}" stroke-width="1.2" />`
-      : node.type === 'circle'
-        ? `<circle cx="${number(node.x)}" cy="${number(node.y)}" r="${number(Math.min(node.width, node.height) / 2)}" ${paint} />`
-        : node.type === 'ellipse'
-          ? `<ellipse cx="${number(node.x)}" cy="${number(node.y)}" rx="${number(node.width / 2)}" ry="${number(node.height / 2)}" ${paint} />`
-          : `<rect x="${number(x)}" y="${number(y)}" width="${number(node.width)}" height="${number(node.height)}" rx="${node.style.rounded ? number(Math.min(10, node.height / 4)) : 0}" ${paint} />`;
+    node.type === 'image'
+      ? imageSvg(node, paint)
+      : node.type === 'coordinate'
+        ? `<path d="M ${number(node.x - 5)} ${number(node.y)} H ${number(node.x + 5)} M ${number(node.x)} ${number(node.y - 5)} V ${number(node.y + 5)}" stroke="${stroke}" stroke-width="1.2" />`
+        : node.type === 'circle'
+          ? `<circle cx="${number(node.x)}" cy="${number(node.y)}" r="${number(Math.min(node.width, node.height) / 2)}" ${paint} />`
+          : node.type === 'ellipse'
+            ? `<ellipse cx="${number(node.x)}" cy="${number(node.y)}" rx="${number(node.width / 2)}" ry="${number(node.height / 2)}" ${paint} />`
+            : `<rect x="${number(x)}" y="${number(y)}" width="${number(node.width)}" height="${number(node.height)}" rx="${node.style.rounded ? number(Math.min(10, node.height / 4)) : 0}" ${paint} />`;
   const text = displayText(node.text);
   const anchor =
     node.style.align === 'left' ? 'start' : node.style.align === 'right' ? 'end' : 'middle';
   const label =
-    text && node.type !== 'coordinate'
+    text && node.type !== 'coordinate' && node.type !== 'image'
       ? `<text x="${number(node.x)}" y="${number(node.y + node.style.fontSize * 0.35)}" text-anchor="${anchor}" fill="${displayColor(node.style.textColor, 'text')}" font-size="${number(node.style.fontSize)}" font-weight="${node.style.fontWeight}">${escapeXml(text)}</text>`
       : '';
   return `<g id="${escapeXml(node.id)}" opacity="${opacity}" transform="rotate(${node.rotation} ${number(node.x)} ${number(node.y)})">${shape}${label}</g>`;

@@ -198,3 +198,87 @@ test('typing TikZ keeps canvas ids stable for unnamed edges', async ({ page }) =
   );
   expect(after).toEqual(ids);
 });
+
+const pngBytes = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+test('right-clicking a node opens its actions menu', async ({ page }) => {
+  await page.goto('/');
+  await setSource(page, tikzSource);
+  const menu = page.getByTestId('canvas-context-menu');
+  await page.getByTestId('canvas-element-A').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+
+  await page.getByTestId('canvas-element-A').click();
+  await page.getByTestId('canvas-element-B').click({ modifiers: ['Shift'] });
+  await page.getByTestId('canvas-element-B').click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Connect A → B' })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Duplicate' }).click();
+  await expect(menu).toBeHidden();
+  await expect(page.locator('[data-testid^="canvas-element-"]')).toHaveCount(5);
+
+  await page.getByTestId('diagram-canvas').click({ button: 'right', position: { x: 20, y: 400 } });
+  await expect(menu.getByRole('menuitem', { name: 'Select all' })).toBeVisible();
+});
+
+test('side panels can be resized by dragging their edges', async ({ page }) => {
+  await page.goto('/');
+  const sidebar = page.locator('.sidebar');
+  const before = (await sidebar.boundingBox())?.width ?? 0;
+  const handle = await page.getByTestId('resize-sidebar').boundingBox();
+  if (!handle) throw new Error('resize handle has no bounds');
+  await page.mouse.move(handle.x, handle.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 80, handle.y + 200, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeCloseTo(before + 80, 0);
+  const inspector = page.locator('.inspector');
+  const inspectorBefore = (await inspector.boundingBox())?.width ?? 0;
+  await page.getByTestId('resize-inspector').focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect
+    .poll(async () => (await inspector.boundingBox())?.width)
+    .toBeCloseTo(inspectorBefore + 16, 0);
+  await page.reload();
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeCloseTo(before + 80, 0);
+});
+
+test('image nodes embed an uploaded picture and emit \\includegraphics', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('new-project').click();
+  await page.getByRole('button', { name: 'Image', exact: true }).click();
+  await expect(page.locator('.view-lines')).toContainText('example-image');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('image-upload').click();
+  await (await chooser).setFiles({ name: 'My plot.png', mimeType: 'image/png', buffer: pngBytes });
+  await expect(page.locator('[data-testid^="canvas-element-node_"] image')).toHaveCount(1);
+  await expect(page.getByTestId('image-path')).toHaveValue('My-plot.png');
+  const source = await editorText(page);
+  expect(source).toMatch(/\\includegraphics\[width=3\.2cm,height=3\.2cm\]\{My-plot\.png\}/u);
+
+  const response = await page.request.post('/api/render', {
+    data: { source, images: [{ name: 'My-plot.png', data: pngBytes.toString('base64') }] },
+  });
+  expect(response.ok()).toBe(true);
+  expect((await response.json()).svg).toContain('data:image/png;base64,');
+});
+
+test('plot data can be imported from a CSV file', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('new-project').click();
+  await page.getByRole('button', { name: 'Plot' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('plot-import-csv').click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'data.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from('x,y\n0,1\n1,4\n2,9\n'),
+  });
+  await expect.poll(() => editorText(page)).toContain('coordinates { (0,1) (1,4) (2,9) }');
+});

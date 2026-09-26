@@ -2,6 +2,8 @@
 name = "tikzforge-tikz-serializer"
 version = "0.1.0"
 edition = "2021"
+# docker/compiler/Dockerfile builds with rust:1.86; this keeps clippy from suggesting newer APIs.
+rust-version = "1.86"
 license = "MIT"
 
 [dependencies]

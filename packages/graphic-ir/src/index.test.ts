@@ -30,6 +30,20 @@ describe('Graphic IR', () => {
     );
   });
 
+  it('only accepts embedded PNG/JPEG data and plain relative names for images', () => {
+    const project = createEmptyProject();
+    const valid = createNode('image', { id: 'ok' });
+    valid.href = 'data:image/jpeg;base64,/9j/4AAQ';
+    valid.source = 'figs/photo.jpg';
+    const remote = createNode('image', { id: 'remote' });
+    remote.href = 'https://example.com/a.png';
+    const escaping = createNode('image', { id: 'escaping' });
+    escaping.source = '/etc/passwd';
+    project.elements = [valid, remote, escaping];
+    const result = validateProject(project);
+    expect(result.errors.map((error) => error.code)).toEqual(['IR_IMAGE_HREF', 'IR_IMAGE_PATH']);
+  });
+
   it('normalizes imported project JSON without changing the domain format', () => {
     const project = projectFromJson({ elements: [] });
     expect(project.format).toBe('latex-diagram-project');

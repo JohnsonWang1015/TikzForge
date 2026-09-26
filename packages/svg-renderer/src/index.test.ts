@@ -27,6 +27,23 @@ describe('SVG renderer', () => {
     expect(svg).toContain('d="M 550 400 L 750 400"');
   });
 
+  it('draws uploaded pictures and names the file of images without one', () => {
+    const project = createEmptyProject();
+    const uploaded = createNode('image', { id: 'up', x: 100, y: 100, width: 80, height: 40 });
+    uploaded.href =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==';
+    const missing = createNode('image', { id: 'missing', x: 300, y: 100 });
+    missing.source = 'figs/plot.png';
+    const remote = createNode('image', { id: 'remote', x: 500, y: 100 });
+    remote.href = 'https://example.com/tracker.png';
+    project.elements = [uploaded, missing, remote];
+    const svg = renderProjectToSvg(project);
+    expect(svg).toContain(`<image x="60" y="80" width="80" height="40" href="${uploaded.href}"`);
+    expect(svg).toContain('>figs/plot.png</text>');
+    expect(svg).not.toContain('example.com');
+    expect(svg).toContain('>example-image</text>');
+  });
+
   it('draws raw TikZ previews', () => {
     const project = createEmptyProject();
     project.elements = [

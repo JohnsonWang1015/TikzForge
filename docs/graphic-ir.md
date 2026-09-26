@@ -9,6 +9,10 @@ Supported elements:
 
 - Primitive nodes: rectangle, circle, ellipse, text, formula, coordinate and image. `sizeMode`
   is `fixed` (emitted as minimum width/height) or `auto` (sized from text like plain TikZ).
+- Image nodes keep their `\includegraphics` file name in `source` (a plain relative path,
+  `example-image` by default) and an uploaded picture in `href` as a PNG/JPEG data URL. The data
+  URL is never written to TikZ; renderers ignore any other `href`, and `validateProject` rejects
+  it.
 - Connections: line, arrow, bidirectional-arrow, dashed-arrow and curved-arrow, with optional
   anchors, `bend`, orthogonal `route` (`-|`, `|-`), label and label options.
 - Group, plot and read-only raw-tikz block. Raw blocks may carry a `preview` of the shapes they

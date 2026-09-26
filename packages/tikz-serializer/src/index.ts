@@ -1,8 +1,10 @@
 import {
   autoNodeSize,
   canvasToTikzPoint,
+  DEFAULT_IMAGE_PATH,
   formatNumber,
   isEdgeElement,
+  isImagePath,
   isNodeElement,
   pxToPt,
   relativePlacement,
@@ -86,25 +88,33 @@ function nodeOptions(node: NodeElement, project: Project, pixelsPerCm: number): 
     options.push(stroke === 'none' ? 'draw=none' : stroke === 'black' ? 'draw' : `draw=${stroke}`);
   const fill = tikzColor(style.fill, 'fill');
   if (fill !== tikzColor(base.fill, 'fill')) options.push(`fill=${fill}`);
+  // An image node has no text, so text styling would only be noise in its options.
+  const image = node.type === 'image';
   const text = tikzColor(style.textColor, 'text');
-  if (text !== tikzColor(base.textColor, 'text')) options.push(`text=${text}`);
+  if (!image && text !== tikzColor(base.textColor, 'text')) options.push(`text=${text}`);
   if (style.rounded !== base.rounded)
     options.push(style.rounded ? 'rounded corners' : 'sharp corners');
   if (Boolean(style.dashed) !== Boolean(base.dashed))
     options.push(style.dashed ? 'dashed' : 'solid');
-  if (Math.abs(pxToPt(style.lineWidth - base.lineWidth, pixelsPerCm)) > 0.02)
+  if (
+    (!image || stroke !== 'none') &&
+    Math.abs(pxToPt(style.lineWidth - base.lineWidth, pixelsPerCm)) > 0.02
+  )
     options.push(lineWidthOption(style.lineWidth, pixelsPerCm) ?? 'thin');
   if (
-    Math.abs(pxToPt(style.fontSize - base.fontSize, pixelsPerCm)) > 0.2 ||
-    style.fontWeight !== base.fontWeight
+    !image &&
+    (Math.abs(pxToPt(style.fontSize - base.fontSize, pixelsPerCm)) > 0.2 ||
+      style.fontWeight !== base.fontWeight)
   )
     options.push(
       fontOption(style.fontSize, style.fontWeight === 'bold', pixelsPerCm) ?? 'font=\\normalsize',
     );
-  if (style.textWidth !== base.textWidth && style.textWidth)
+  if (!image && style.textWidth !== base.textWidth && style.textWidth)
     options.push(`text width=${cm(style.textWidth, pixelsPerCm)}`);
-  if (style.align !== base.align) options.push(`align=${style.align}`);
-  if (node.sizeMode !== 'auto') {
+  if (!image && style.align !== base.align) options.push(`align=${style.align}`);
+  // The picture sets an image node's size; without padding the node is exactly the picture.
+  if (image) options.push('inner sep=0pt');
+  else if (node.sizeMode !== 'auto') {
     const auto = autoNodeSize(shape, node.text, style);
     const differs = (value: number, minimum: number | undefined, natural: number) =>
       Math.abs(value - (minimum ?? natural)) >= 0.5;
@@ -145,7 +155,11 @@ function serializeNode(node: NodeElement, project: Project, pixelsPerCm: number)
   if (!position.startsWith('at') && node.position.mode === 'relative')
     options.push(`${node.position.relation}=${position}of ${node.position.target}`);
   const at = position.startsWith('at') ? ` ${position}` : '';
-  return `\\node${optionList(options)} (${node.id})${at} {${texText(node.text)}};`;
+  const content =
+    node.type === 'image'
+      ? `\\includegraphics[width=${cm(node.width, pixelsPerCm)},height=${cm(node.height, pixelsPerCm)}]{${isImagePath(node.source) ? node.source : DEFAULT_IMAGE_PATH}}`
+      : texText(node.text);
+  return `\\node${optionList(options)} (${node.id})${at} {${content}};`;
 }
 
 type Direction = 'none' | 'forward' | 'backward' | 'both';

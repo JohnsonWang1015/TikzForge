@@ -150,6 +150,31 @@ describe('TikZ serializer', () => {
     expect(source).toContain('\\addplot coordinates { (1,2) (2,4) (3,3) };');
   });
 
+  it('emits image nodes as \\includegraphics sized like the canvas and parses them back', () => {
+    const image = createNode('image', { id: 'fig', x: 100, y: -50, width: 150, height: 100 });
+    image.source = 'figs/plot.png';
+    image.href =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==';
+    const first = serializeProject(project([image]));
+    expect(first).toContain(
+      '\\node[inner sep=0pt] (fig) at (2,1) {\\includegraphics[width=3cm,height=2cm]{figs/plot.png}};',
+    );
+    const parsed = parseTikz(first);
+    expect(parsed.valid).toBe(true);
+    const node = parsed.project.elements[0] as NodeElement;
+    expect(node).toMatchObject({ type: 'image', source: 'figs/plot.png', width: 150, height: 100 });
+    expect(node.extraOptions).toBeUndefined();
+    expect(node.href).toBeUndefined();
+    expect(serializeProject(parsed.project)).toBe(first);
+  });
+
+  it('falls back to the placeholder picture for unusable image file names', () => {
+    const image = createNode('image', { id: 'fig', x: 0, y: 0 });
+    expect(image.source).toBe('example-image');
+    image.source = '../secret}';
+    expect(serializeProject(project([image]))).toContain('{example-image}');
+  });
+
   it('maps every element to its statement text', () => {
     const { source, sourceMap } = serializeProjectWithMap(createStarterProject());
     for (const [id, range] of Object.entries(sourceMap)) {
