@@ -49,14 +49,16 @@ flowchart TB
 
 ## Synchronization
 
-Canvas actions update IR and serialize the whole supported picture. Source edits are debounced,
-parsed and validated. A failed parse does not replace `project`; it only updates diagnostics. This
-avoids cursor jumps, infinite loops and canvas loss. AST source ranges are retained for the future
-incremental patch implementation.
+Canvas actions update IR, and `patchSource` rewrites only the statements of changed elements using
+the store's `sourceMap` (element id → statement offsets), so comments, formatting and raw TikZ
+survive. Monaco receives the change as one minimal edit, which keeps the cursor in place. Source
+edits are debounced, parsed and validated; `reconcileParsedProject` then keeps element ids and
+IR-only state. A failed parse does not replace `project`; it only updates diagnostics. This avoids
+cursor jumps, infinite loops and canvas loss.
 
 ## State ownership
 
-- `project-store`: project, source, selection and command-style history.
+- `project-store`: project, source, source map, selection and command-style history.
 - `ui-store`: view transform and modal state.
 - `compiler-store`: compile lifecycle, preview and errors.
 

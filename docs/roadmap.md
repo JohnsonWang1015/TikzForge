@@ -19,10 +19,19 @@ The requested implementation order is represented in the repository as follows:
 | 13    | validated editable AI generation interface                  | implemented with local provider seam |
 | 14    | parser/serializer/renderer/inspector plugin contract        | implemented                          |
 
-## Next production hardening
+## Production hardening
 
-- Replace full-source serialization with AST source-range patches for cursor-preserving edits.
-- Route accurate compiler PDF/SVG output through the sandbox when a Tectonic cache is configured.
-- Add browser WASM compilation and IndexedDB binary snapshots.
-- Expand Playwright coverage to resize, history, raw blocks and PGFPlots.
-- Add accessibility review and visual regression baselines.
+Done:
+
+- AST source-range patches: canvas edits rewrite only the changed statements, and text edits keep
+  element ids.
+- Real LaTeX previews through the sandboxed Tectonic service (`docker compose up`).
+- A wider editable TikZ subset (styles, anchors, bends, orthogonal routes, labels, polar
+  coordinates) and read-only previews for `\foreach`, scopes and coordinate paths.
+- Playwright coverage for resize, history, raw blocks, PGFPlots and source preservation.
+
+Next:
+
+- A real model behind the AI generation seam (currently a deterministic local provider).
+- Browser WASM compilation and IndexedDB binary snapshots.
+- Accessibility review and visual regression baselines.
