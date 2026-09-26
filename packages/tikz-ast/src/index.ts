@@ -1,4 +1,4 @@
-import type { Point, SourceRange } from '@tikzforge/graphic-ir';
+import type { SourceRange } from '@tikzforge/graphic-ir';
 
 export type TikzTokenKind =
   | 'command'
@@ -29,65 +29,24 @@ export interface TikzToken {
 export interface TikzOption {
   key: string;
   value?: string;
+  /** The option exactly as written, e.g. `fill = blue!20`. */
+  raw: string;
   range: SourceRange;
 }
 
-export interface AstNodeBase {
-  kind: string;
+export type TikzStatementKind =
+  'node' | 'coordinate' | 'path' | 'plot' | 'foreach' | 'environment' | 'styles' | 'raw';
+
+/** One top-level statement of a picture and the IR elements it produced. */
+export interface TikzStatement {
+  kind: TikzStatementKind;
+  /** Command or environment name, e.g. `draw`, `foreach` or `scope`. */
+  command?: string;
+  /** Covers the statement text including its terminating `;`. */
   range: SourceRange;
-}
-
-export interface TikzNodeAst extends AstNodeBase {
-  kind: 'node';
-  id?: string;
-  coordinate: Point;
   options: TikzOption[];
-  text: string;
-  position?: {
-    target: string;
-    relation: string;
-    distance: number;
-  };
+  elementIds: string[];
 }
-
-export interface TikzCoordinateAst extends AstNodeBase {
-  kind: 'coordinate';
-  id: string;
-  coordinate: Point;
-  options: TikzOption[];
-}
-
-export interface TikzPathAst extends AstNodeBase {
-  kind: 'path';
-  command: 'draw' | 'path' | 'fill' | 'filldraw' | 'clip';
-  options: TikzOption[];
-  segments: TikzPathSegment[];
-}
-
-export type TikzPathSegment =
-  | { kind: 'point'; value: Point | string }
-  | { kind: 'line'; to: Point | string }
-  | { kind: 'rectangle'; to: Point | string }
-  | { kind: 'circle'; radius: number }
-  | { kind: 'ellipse'; radii: Point }
-  | { kind: 'bezier'; controls: Point[]; to: Point | string };
-
-export interface TikzPlotAst extends AstNodeBase {
-  kind: 'plot';
-  options: TikzOption[];
-  plotType: 'line' | 'scatter' | 'bar' | 'function';
-  data: Point[];
-  expression?: string;
-}
-
-export interface TikzRawAst extends AstNodeBase {
-  kind: 'raw';
-  source: string;
-  reason: string;
-}
-
-export type TikzStatement =
-  TikzNodeAst | TikzCoordinateAst | TikzPathAst | TikzPlotAst | TikzRawAst;
 
 export interface TikzDocumentAst {
   kind: 'document';
@@ -95,6 +54,8 @@ export interface TikzDocumentAst {
   bodyRange: SourceRange;
   wrapperPrefix: string;
   wrapperSuffix: string;
+  /** Text inside `\begin{tikzpicture}[...]`, when present. */
+  pictureOptions?: string;
   statements: TikzStatement[];
   tokens: TikzToken[];
 }
