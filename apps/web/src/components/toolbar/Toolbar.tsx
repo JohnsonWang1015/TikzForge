@@ -25,7 +25,7 @@ import { useUiStore } from '@/stores/ui-store';
 export function Toolbar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const project = useProjectStore((state) => state.project);
-  const setProject = useProjectStore((state) => state.setProject);
+  const replaceProject = useProjectStore((state) => state.replaceProject);
   const save = useProjectStore((state) => state.save);
   const undo = useProjectStore((state) => state.undo);
   const redo = useProjectStore((state) => state.redo);
@@ -43,14 +43,18 @@ export function Toolbar() {
       try {
         const parsed = JSON.parse(content) as unknown;
         const { projectFromJson } = await import('@tikzforge/graphic-ir');
-        setProject(projectFromJson(parsed), 'Open project');
+        replaceProject(projectFromJson(parsed), 'Open project');
       } catch {
         window.alert('This project JSON is invalid.');
       }
       return;
     }
     const parsed = parseTikz(content);
-    if (parsed.valid) setProject(parsed.project, 'Import TikZ');
+    if (parsed.valid)
+      replaceProject(parsed.project, 'Import TikZ', {
+        source: content,
+        sourceMap: parsed.sourceMap,
+      });
     else window.alert(parsed.diagnostics.map((diagnostic) => diagnostic.message).join('\n'));
   }
 
@@ -66,7 +70,7 @@ export function Toolbar() {
       <div className="toolbar-group">
         <button
           className="button button-ghost"
-          onClick={() => setProject(createEmptyProject('Untitled diagram'), 'New project')}
+          onClick={() => replaceProject(createEmptyProject('Untitled diagram'), 'New project')}
           data-testid="new-project"
         >
           <FilePlus2 size={14} /> New

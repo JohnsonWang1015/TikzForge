@@ -9,7 +9,7 @@ export function AiGenerator() {
   const [prompt, setPrompt] = useState('Input → Conv7x7 → Residual Stage 1 → Classifier');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const setProject = useProjectStore((state) => state.setProject);
+  const replaceProject = useProjectStore((state) => state.replaceProject);
   const setModal = useUiStore((state) => state.setModal);
   async function generate(): Promise<void> {
     setBusy(true);
@@ -21,12 +21,12 @@ export function AiGenerator() {
         body: JSON.stringify({ prompt }),
       });
       const body = (await response.json()) as {
-        project?: Parameters<typeof setProject>[0];
+        project?: Parameters<typeof replaceProject>[0];
         explanation?: string;
         error?: string;
       };
       if (!response.ok || !body.project) throw new Error(body.error ?? 'Generation failed.');
-      setProject(body.project, 'AI generate diagram');
+      replaceProject(body.project, 'AI generate diagram');
       setMessage(body.explanation ?? 'Generated editable Graphic IR.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Generation failed.');

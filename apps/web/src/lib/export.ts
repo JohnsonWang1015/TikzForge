@@ -1,5 +1,12 @@
 import { renderProjectToSvg } from '@tikzforge/svg-renderer';
-import { isEdgeElement, isNodeElement, type Project } from '@tikzforge/graphic-ir';
+import {
+  displayColor,
+  edgeGeometry,
+  isEdgeElement,
+  isNodeElement,
+  type ColorRole,
+  type Project,
+} from '@tikzforge/graphic-ir';
 import { serializeProject } from '@tikzforge/tikz-serializer';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 
@@ -19,8 +26,14 @@ function downloadBlob(filename: string, blob: Blob): void {
   URL.revokeObjectURL(url);
 }
 
-function color(value: string, fallback: [number, number, number]): ReturnType<typeof rgb> {
-  const match = value.match(/^#([0-9a-f]{6})$/iu);
+function color(
+  value: string,
+  role: ColorRole,
+  fallback: [number, number, number],
+): ReturnType<typeof rgb> | undefined {
+  const display = displayColor(value, role);
+  if (display === 'none') return undefined;
+  const match = display.match(/^#([0-9a-f]{6})$/iu);
   if (!match) return rgb(...fallback);
   const hex = match[1] ?? '';
   return rgb(
@@ -37,23 +50,21 @@ async function createPdf(project: Project): Promise<Uint8Array> {
   const toY = (y: number) => project.canvas.height - y;
   for (const element of project.elements) {
     if (isEdgeElement(element)) {
-      const from = project.elements.find((candidate) => candidate.id === element.from);
-      const to = project.elements.find((candidate) => candidate.id === element.to);
-      if (!from || !to || !isNodeElement(from) || !isNodeElement(to)) continue;
+      const geometry = edgeGeometry(element, (id) =>
+        project.elements.find((candidate) => candidate.id === id),
+      );
+      if (!geometry) continue;
       page.drawLine({
-        start: { x: from.x, y: toY(from.y) },
-        end: { x: to.x, y: toY(to.y) },
-        color: color(element.style.stroke, [0.57, 0.64, 0.78]),
+        start: { x: geometry.start.x, y: toY(geometry.start.y) },
+        end: { x: geometry.end.x, y: toY(geometry.end.y) },
+        color: color(element.style.stroke, 'stroke', [0.57, 0.64, 0.78]),
         thickness: element.style.lineWidth,
       });
       continue;
     }
     if (!isNodeElement(element)) continue;
-    const fill =
-      element.style.fill === 'transparent' || element.style.fill === 'none'
-        ? undefined
-        : color(element.style.fill, [0.06, 0.09, 0.15]);
-    const border = color(element.style.stroke, [0.43, 0.51, 0.65]);
+    const fill = color(element.style.fill, 'fill', [0.06, 0.09, 0.15]);
+    const border = color(element.style.stroke, 'stroke', [0.43, 0.51, 0.65]);
     const x = element.x - element.width / 2;
     const y = project.canvas.height - element.y - element.height / 2;
     if (element.type === 'circle' || element.type === 'ellipse')
@@ -82,14 +93,14 @@ async function createPdf(project: Project): Promise<Uint8Array> {
         y: toY(element.y) - element.style.fontSize / 3,
         size: element.style.fontSize,
         font,
-        color: color(element.style.textColor, [0.9, 0.94, 1]),
+        color: color(element.style.textColor, 'text', [0.9, 0.94, 1]),
       });
   }
   return pdf.save();
 }
 
 async function createPng(project: Project): Promise<Blob> {
-  const svg = renderProjectToSvg(project);
+  const svg = renderProjectToSvg(project, { fitToContent: true });
   const image = new Image();
   image.decoding = 'async';
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -98,8 +109,8 @@ async function createPng(project: Project): Promise<Blob> {
     image.onerror = () => reject(new Error('Could not rasterize SVG preview.'));
   });
   const canvas = document.createElement('canvas');
-  canvas.width = project.canvas.width;
-  canvas.height = project.canvas.height;
+  canvas.width = image.naturalWidth || project.canvas.width;
+  canvas.height = image.naturalHeight || project.canvas.height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas 2D context is unavailable.');
   context.drawImage(image, 0, 0);
@@ -118,7 +129,7 @@ export async function exportProject(project: Project, format: ExportFormat): Pro
       .replace(/[^a-z0-9]+/giu, '-')
       .replace(/^-|-$/gu, '') || 'tikzforge-project';
   if (format === 'svg') {
-    download(`${name}.svg`, renderProjectToSvg(project), 'image/svg+xml');
+    download(`${name}.svg`, renderProjectToSvg(project, { fitToContent: true }), 'image/svg+xml');
     return;
   }
   if (format === 'pdf') {
@@ -144,7 +155,7 @@ export async function exportProject(project: Project, format: ExportFormat): Pro
 }
 
 export function projectAsDownloadText(project: Project, format: ExportFormat): string {
-  if (format === 'svg') return renderProjectToSvg(project);
+  if (format === 'svg') return renderProjectToSvg(project, { fitToContent: true });
   if (format === 'json') return JSON.stringify(project, null, 2);
   return serializeProject(project, { includeDocument: format === 'latex' });
 }

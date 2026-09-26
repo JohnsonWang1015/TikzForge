@@ -20,6 +20,7 @@ export function TikzEditor() {
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const userEditRef = useRef(false);
+  const applyingStoreEditRef = useRef(false);
 
   useEffect(
     () => () => {
@@ -34,6 +35,12 @@ export function TikzEditor() {
   ): void {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    const latest = useProjectStore.getState().source;
+    if (editor.getValue() !== latest) {
+      applyingStoreEditRef.current = true;
+      editor.setValue(latest);
+      applyingStoreEditRef.current = false;
+    }
     if (!monaco.languages.getLanguages().some((language) => language.id === 'tikzforge-tikz')) {
       monaco.languages.register({ id: 'tikzforge-tikz', extensions: ['.tikz', '.tex'] });
       monaco.languages.setMonarchTokensProvider('tikzforge-tikz', {
@@ -78,6 +85,37 @@ export function TikzEditor() {
     }
   }
 
+  // Canvas edits patch the store's source; mirror them into Monaco as one minimal edit so the
+  // cursor, selection and scroll position outside the changed statement stay where they were.
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+    const current = model.getValue();
+    if (current === source) return;
+    let start = 0;
+    const shortest = Math.min(current.length, source.length);
+    while (start < shortest && current[start] === source[start]) start += 1;
+    let end = 0;
+    while (
+      end < shortest - start &&
+      current[current.length - 1 - end] === source[source.length - 1 - end]
+    )
+      end += 1;
+    const from = model.getPositionAt(start);
+    const to = model.getPositionAt(current.length - end);
+    applyingStoreEditRef.current = true;
+    editor.executeEdits('tikzforge-canvas', [
+      {
+        range: new monaco.Range(from.lineNumber, from.column, to.lineNumber, to.column),
+        text: source.slice(start, source.length - end),
+      },
+    ]);
+    editor.pushUndoStop();
+    applyingStoreEditRef.current = false;
+  }, [source]);
+
   useEffect(() => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
@@ -101,6 +139,7 @@ export function TikzEditor() {
   }, [diagnostics]);
 
   function handleChange(value: string | undefined): void {
+    if (applyingStoreEditRef.current) return;
     const next = value ?? '';
     userEditRef.current = true;
     setSource(next);
@@ -112,6 +151,9 @@ export function TikzEditor() {
       }
     }, 350);
   }
+
+  // Info diagnostics (raw TikZ kept as source) stay as editor markers, not in the problem strip.
+  const problems = diagnostics.filter((item) => item.severity !== 'info');
 
   return (
     <section className="editor-panel">
@@ -126,7 +168,7 @@ export function TikzEditor() {
           height="100%"
           language="tikzforge-tikz"
           theme="vs-dark"
-          value={source}
+          defaultValue={source}
           onChange={handleChange}
           onMount={onMount}
           options={{
@@ -142,9 +184,9 @@ export function TikzEditor() {
           }}
         />
       </div>
-      {diagnostics.length > 0 && (
+      {problems.length > 0 && (
         <div className="diagnostic-strip">
-          {diagnostics.slice(0, 4).map((item, index) => (
+          {problems.slice(0, 4).map((item, index) => (
             <div key={`${item.code ?? item.message}-${index}`}>
               Line {item.line}, Col {item.column}: {item.message}
             </div>

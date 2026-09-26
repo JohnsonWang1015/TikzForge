@@ -7,7 +7,7 @@ import { useUiStore } from '@/stores/ui-store';
 
 export function TemplateGallery() {
   const setModal = useUiStore((state) => state.setModal);
-  const setProject = useProjectStore((state) => state.setProject);
+  const replaceProject = useProjectStore((state) => state.replaceProject);
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal">
@@ -24,7 +24,10 @@ export function TemplateGallery() {
                 className="template-card"
                 key={template.id}
                 onClick={() => {
-                  setProject(createTemplateProject(template.id), `Use ${template.name} template`);
+                  replaceProject(
+                    createTemplateProject(template.id),
+                    `Use ${template.name} template`,
+                  );
                   setModal(null);
                 }}
               >

@@ -217,6 +217,52 @@ function EdgeInspector({ edge }: { edge: EdgeElement }) {
         </div>
       </section>
       <section className="inspector-section">
+        <h3>Path</h3>
+        <div className="field">
+          <label>Label</label>
+          <input
+            value={edge.label ?? ''}
+            placeholder="none"
+            onChange={(event) =>
+              updateElement(edge.id, { label: event.target.value || undefined }, 'Edit edge label')
+            }
+          />
+        </div>
+        <div className="field-grid">
+          <div className="field">
+            <label>Route</label>
+            <select
+              value={edge.route ?? ''}
+              onChange={(event) =>
+                updateElement(
+                  edge.id,
+                  {
+                    route: (event.target.value || undefined) as EdgeElement['route'],
+                    bend: undefined,
+                  },
+                  'Change edge route',
+                )
+              }
+            >
+              <option value="">Straight</option>
+              <option value="-|">Horizontal, then vertical (-|)</option>
+              <option value="|-">Vertical, then horizontal (|-)</option>
+            </select>
+          </div>
+          <NumberField
+            label="Bend (°, + left)"
+            value={edge.bend ?? 0}
+            onChange={(value) =>
+              updateElement(
+                edge.id,
+                { bend: value || undefined, route: undefined },
+                'Change edge bend',
+              )
+            }
+          />
+        </div>
+      </section>
+      <section className="inspector-section">
         <h3>Style</h3>
         <div className="field-grid">
           <ColorField

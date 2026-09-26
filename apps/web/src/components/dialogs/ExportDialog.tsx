@@ -5,7 +5,7 @@ import { exportProject, type ExportFormat } from '@/lib/export';
 import { useProjectStore } from '@/stores/project-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useCompilerStore } from '@/stores/compiler-store';
-import { sanitizeSvg } from '@tikzforge/svg-renderer';
+import { CompilePreview } from '@/components/preview/PreviewPanel';
 import { TemplateGallery } from './TemplateGallery';
 import { AiGenerator } from './AiGenerator';
 import { HistoryPanel } from '../history/HistoryPanel';
@@ -23,10 +23,6 @@ export function ExportDialog() {
   const project = useProjectStore((state) => state.project);
   const setModal = useUiStore((state) => state.setModal);
   const compile = useCompilerStore((state) => state.compile);
-  const status = useCompilerStore((state) => state.status);
-  const svg = useCompilerStore((state) => state.svg);
-  const errors = useCompilerStore((state) => state.errors);
-  const log = useCompilerStore((state) => state.log);
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal">
@@ -53,37 +49,7 @@ export function ExportDialog() {
               </button>
             ))}
           </div>
-          {status === 'compiling' && (
-            <p className="brand-subtitle">Compiling supported TikZ subset…</p>
-          )}
-          {status === 'error' && (
-            <div className="diagnostic-strip">
-              {errors.map((error, index) => (
-                <div key={`${error.message}-${index}`}>
-                  Line {error.line}: {error.message}
-                </div>
-              ))}
-            </div>
-          )}
-          {status === 'success' && svg && (
-            <>
-              <p className="status-ok" data-testid="preview-ready">
-                ● Fast preview ready <span className="brand-subtitle">{log}</span>
-              </p>
-              <iframe
-                title="TikzForge SVG preview"
-                srcDoc={sanitizeSvg(svg)}
-                style={{
-                  width: '100%',
-                  height: 260,
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  background: '#0b1020',
-                }}
-                sandbox="allow-same-origin"
-              />
-            </>
-          )}
+          <CompilePreview height={300} />
           <div className="modal-actions">
             <button
               className="button button-primary"

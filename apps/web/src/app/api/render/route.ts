@@ -110,7 +110,7 @@ function fastRender(source: string, started: number, note?: string): Response {
   }
   return Response.json({
     success: true,
-    svg: sanitizeSvg(renderProjectToSvg(parsed.project)),
+    svg: sanitizeSvg(renderProjectToSvg(parsed.project, { fitToContent: true })),
     compileTime: Math.round(performance.now() - started),
     errors: [],
     log:

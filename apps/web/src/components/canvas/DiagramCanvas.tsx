@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   PointerEvent as ReactPointerEvent,
   ReactNode,
@@ -8,13 +8,21 @@ import type {
 } from 'react';
 import { Grid2X2, Minus, Plus, Maximize2 } from 'lucide-react';
 import {
+  displayColor,
+  displayText,
+  edgeGeometry,
+  isEdgeElement,
   isNodeElement,
+  plotGeometry,
   snapValue,
   type DiagramElement,
   type EdgeElement,
   type NodeElement,
+  type PlotElement,
   type Point,
+  type PreviewShape,
   type Project,
+  type RawTikzBlock,
 } from '@tikzforge/graphic-ir';
 import { useProjectStore } from '@/stores/project-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -29,34 +37,43 @@ interface DragState {
   panStart: { x: number; y: number };
 }
 
-function elementPoint(element: DiagramElement): Point | undefined {
-  if ('x' in element && 'y' in element) return { x: element.x, y: element.y };
-  return undefined;
-}
+type Lookup = (id: string) => DiagramElement | undefined;
 
 function nodeShape(node: NodeElement): ReactNode {
   const x = node.x - node.width / 2;
   const y = node.y - node.height / 2;
-  const fill = node.style.fill === 'none' ? 'transparent' : node.style.fill;
   const common = {
-    fill,
-    stroke: node.style.stroke,
+    fill: displayColor(node.style.fill, 'fill'),
+    stroke: displayColor(node.style.stroke, 'stroke'),
     strokeWidth: node.style.lineWidth,
     strokeDasharray: node.style.dashed ? '6 4' : undefined,
   };
+  if (node.type === 'coordinate')
+    return (
+      <g stroke={displayColor(node.style.stroke, 'stroke')} strokeWidth={1.2}>
+        <line x1={node.x - 5} y1={node.y} x2={node.x + 5} y2={node.y} />
+        <line x1={node.x} y1={node.y - 5} x2={node.x} y2={node.y + 5} />
+        <rect
+          x={x}
+          y={y}
+          width={node.width}
+          height={node.height}
+          fill="transparent"
+          stroke="none"
+        />
+      </g>
+    );
   if (node.type === 'circle')
     return <circle cx={node.x} cy={node.y} r={Math.min(node.width, node.height) / 2} {...common} />;
   if (node.type === 'ellipse')
     return <ellipse cx={node.x} cy={node.y} rx={node.width / 2} ry={node.height / 2} {...common} />;
-  if (node.type === 'image')
-    return <rect x={x} y={y} width={node.width} height={node.height} rx={8} {...common} />;
   return (
     <rect
       x={x}
       y={y}
       width={node.width}
       height={node.height}
-      rx={node.style.rounded ? 10 : 0}
+      rx={node.type === 'image' ? 8 : node.style.rounded ? Math.min(10, node.height / 4) : 0}
       {...common}
     />
   );
@@ -65,7 +82,7 @@ function nodeShape(node: NodeElement): ReactNode {
 function renderNode(
   node: NodeElement,
   selected: boolean,
-  onPointerDown: (event: ReactPointerEvent<SVGGElement>, id: string) => void,
+  onPointerDown?: (event: ReactPointerEvent<SVGGElement>, id: string) => void,
 ) {
   const anchor =
     node.style.align === 'left' ? 'start' : node.style.align === 'right' ? 'end' : 'middle';
@@ -75,12 +92,13 @@ function renderNode(
       : node.style.align === 'right'
         ? node.x + node.width / 2 - 12
         : node.x;
+  const text = displayText(node.text);
   return (
     <g
       key={node.id}
-      data-testid={`canvas-element-${node.id}`}
+      data-testid={onPointerDown ? `canvas-element-${node.id}` : undefined}
       transform={`rotate(${node.rotation} ${node.x} ${node.y})`}
-      onPointerDown={(event) => onPointerDown(event, node.id)}
+      onPointerDown={onPointerDown ? (event) => onPointerDown(event, node.id) : undefined}
     >
       {nodeShape(node)}
       {node.type === 'image' && (
@@ -88,16 +106,16 @@ function renderNode(
           Image placeholder
         </text>
       )}
-      {node.text && node.type !== 'image' && (
+      {text && node.type !== 'image' && (
         <text
           x={textX}
           y={node.y + node.style.fontSize * 0.35}
           textAnchor={anchor}
-          fill={node.style.textColor}
+          fill={displayColor(node.style.textColor, 'text')}
           fontSize={node.style.fontSize}
           fontWeight={node.style.fontWeight}
         >
-          {node.text}
+          {text}
         </text>
       )}
       {selected && (
@@ -116,41 +134,131 @@ function renderNode(
 
 function renderEdge(
   edge: EdgeElement,
-  project: Project,
+  lookup: Lookup,
   selected: boolean,
-  onPointerDown: (event: ReactPointerEvent<SVGPathElement>, id: string) => void,
+  onPointerDown?: (event: ReactPointerEvent<SVGGElement>, id: string) => void,
 ) {
-  const from = project.elements.find((element) => element.id === edge.from);
-  const to = project.elements.find((element) => element.id === edge.to);
-  const fromPoint = from ? elementPoint(from) : undefined;
-  const toPoint = to ? elementPoint(to) : undefined;
-  if (!fromPoint || !toPoint) return null;
-  let d = `M ${fromPoint.x} ${fromPoint.y} L ${toPoint.x} ${toPoint.y}`;
-  if (edge.type === 'curved-arrow' && edge.controlPoints?.length) {
-    const first = edge.controlPoints[0] ?? fromPoint;
-    const second = edge.controlPoints[1] ?? first;
-    d = `M ${fromPoint.x} ${fromPoint.y} C ${first.x} ${first.y}, ${second.x} ${second.y}, ${toPoint.x} ${toPoint.y}`;
-  }
+  const geometry = edgeGeometry(edge, lookup);
+  if (!geometry) return null;
   const arrow =
-    edge.type === 'line' || edge.style.arrow === 'none'
-      ? undefined
-      : edge.type === 'bidirectional-arrow'
-        ? 'url(#canvas-arrow)'
-        : 'url(#canvas-arrow)';
+    edge.type === 'line' || edge.style.arrow === 'none' ? undefined : 'url(#canvas-arrow)';
+  const stroke = selected ? '#67d8bc' : displayColor(edge.style.stroke, 'stroke');
   return (
-    <path
+    <g
       key={edge.id}
-      data-testid={`canvas-element-${edge.id}`}
-      d={d}
-      fill="none"
-      stroke={selected ? '#67d8bc' : edge.style.stroke}
-      strokeWidth={selected ? edge.style.lineWidth + 2 : edge.style.lineWidth}
-      strokeDasharray={edge.style.dashed || edge.type === 'dashed-arrow' ? '7 5' : undefined}
-      markerEnd={arrow}
-      markerStart={edge.type === 'bidirectional-arrow' ? arrow : undefined}
-      onPointerDown={(event) => onPointerDown(event, edge.id)}
-    />
+      data-testid={onPointerDown ? `canvas-element-${edge.id}` : undefined}
+      onPointerDown={onPointerDown ? (event) => onPointerDown(event, edge.id) : undefined}
+    >
+      <path d={geometry.d} fill="none" stroke="transparent" strokeWidth={12} />
+      <path
+        d={geometry.d}
+        fill="none"
+        stroke={stroke}
+        color={stroke}
+        strokeWidth={selected ? edge.style.lineWidth + 2 : edge.style.lineWidth}
+        strokeDasharray={edge.style.dashed || edge.type === 'dashed-arrow' ? '7 5' : undefined}
+        markerEnd={arrow}
+        markerStart={edge.type === 'bidirectional-arrow' ? arrow : undefined}
+      />
+      {edge.label && (
+        <text
+          x={geometry.label.x}
+          y={geometry.label.y - 6}
+          textAnchor="middle"
+          fill="#c9d4e5"
+          fontSize={12}
+        >
+          {displayText(edge.label)}
+        </text>
+      )}
+    </g>
   );
+}
+
+function renderPlot(
+  plot: PlotElement,
+  selected: boolean,
+  onPointerDown?: (event: ReactPointerEvent<SVGGElement>, id: string) => void,
+) {
+  const { frame, points } = plotGeometry(plot);
+  const line = points.map((point, index) => `${index ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
+  const baseline = frame.y + frame.height * 0.92;
+  const barWidth = points.length ? Math.max(4, (frame.width * 0.6) / points.length) : 0;
+  return (
+    <g
+      key={plot.id}
+      data-testid={onPointerDown ? `canvas-element-${plot.id}` : undefined}
+      onPointerDown={onPointerDown ? (event) => onPointerDown(event, plot.id) : undefined}
+    >
+      <rect {...frame} fill={plot.style.fill} stroke="#6f83a7" />
+      {plot.plotType === 'bar'
+        ? points.map((point, index) => (
+            <rect
+              key={index}
+              x={point.x - barWidth / 2}
+              y={Math.min(point.y, baseline)}
+              width={barWidth}
+              height={Math.abs(baseline - point.y)}
+              fill={plot.style.stroke}
+              opacity={0.75}
+            />
+          ))
+        : plot.plotType !== 'scatter' && (
+            <path
+              d={line}
+              fill="none"
+              stroke={plot.style.stroke}
+              strokeWidth={plot.style.lineWidth}
+            />
+          )}
+      {plot.plotType !== 'bar' &&
+        (plot.style.showPoints || plot.plotType === 'scatter') &&
+        points.map((point, index) => (
+          <circle
+            key={index}
+            cx={point.x}
+            cy={point.y}
+            r={plot.style.pointRadius}
+            fill={plot.style.stroke}
+          />
+        ))}
+      {plot.title && (
+        <text x={plot.x} y={frame.y - 8} textAnchor="middle" fill="#c9d4e5" fontSize={12}>
+          {displayText(plot.title)}
+        </text>
+      )}
+      {selected && (
+        <rect
+          className="selection-box"
+          x={frame.x - 5}
+          y={frame.y - 5}
+          width={frame.width + 10}
+          height={frame.height + 10}
+          rx={2}
+        />
+      )}
+    </g>
+  );
+}
+
+function renderPreview(shape: PreviewShape, lookup: Lookup) {
+  if (shape.type === 'preview-path')
+    return (
+      <path
+        key={shape.id}
+        d={shape.d}
+        fill={displayColor(shape.fill, 'fill')}
+        stroke={displayColor(shape.stroke, 'stroke')}
+        color={displayColor(shape.stroke, 'stroke')}
+        strokeWidth={shape.lineWidth}
+        strokeDasharray={shape.dashed ? '7 5' : undefined}
+        markerEnd={shape.arrowEnd ? 'url(#canvas-arrow)' : undefined}
+        markerStart={shape.arrowStart ? 'url(#canvas-arrow)' : undefined}
+      />
+    );
+  if (shape.type === 'plot') return renderPlot(shape, false);
+  if (isNodeElement(shape)) return renderNode(shape, false);
+  return renderEdge(shape, lookup, false);
 }
 
 export function DiagramCanvas() {
@@ -159,6 +267,19 @@ export function DiagramCanvas() {
   const project = useProjectStore((state) => state.project);
   const selectedIds = useProjectStore((state) => state.selectedIds);
   const select = useProjectStore((state) => state.select);
+  const rawBlocks = useMemo(
+    () =>
+      project.elements.filter((element): element is RawTikzBlock => element.type === 'raw-tikz'),
+    [project.elements],
+  );
+  const lookup = useMemo<Lookup>(() => {
+    const byId = new Map<string, DiagramElement>();
+    for (const raw of rawBlocks)
+      for (const shape of raw.preview ?? [])
+        if (shape.type !== 'preview-path') byId.set(shape.id, shape);
+    for (const element of project.elements) byId.set(element.id, element);
+    return (id) => byId.get(id);
+  }, [project.elements, rawBlocks]);
   const clearSelection = useProjectStore((state) => state.clearSelection);
   const updateElementTransient = useProjectStore((state) => state.updateElementTransient);
   const commitInteraction = useProjectStore((state) => state.commitInteraction);
@@ -179,10 +300,7 @@ export function DiagramCanvas() {
     };
   }
 
-  function startElementDrag(
-    event: ReactPointerEvent<SVGGElement> | ReactPointerEvent<SVGPathElement>,
-    id: string,
-  ): void {
+  function startElementDrag(event: ReactPointerEvent<SVGGElement>, id: string): void {
     event.stopPropagation();
     const additive = event.shiftKey || event.metaKey || event.ctrlKey;
     select(id, additive);
@@ -383,9 +501,10 @@ export function DiagramCanvas() {
               markerHeight="8"
               refX="7"
               refY="4"
-              orient="auto"
+              orient="auto-start-reverse"
+              markerUnits="userSpaceOnUse"
             >
-              <path d="M 0 0 L 8 4 L 0 8 z" fill="#91a4c6" />
+              <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
             </marker>
           </defs>
           <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
@@ -403,47 +522,49 @@ export function DiagramCanvas() {
               fill="transparent"
               pointerEvents="none"
             />
+            {rawBlocks.map((raw) =>
+              raw.preview?.map((shape) => (
+                <g key={`${raw.id}-${shape.id}`} className="raw-preview" pointerEvents="none">
+                  {renderPreview(shape, lookup)}
+                </g>
+              )),
+            )}
             {project.elements
-              .filter(
-                (element): element is EdgeElement =>
-                  element.type === 'line' ||
-                  element.type === 'arrow' ||
-                  element.type === 'bidirectional-arrow' ||
-                  element.type === 'dashed-arrow' ||
-                  element.type === 'curved-arrow',
-              )
+              .filter((element): element is PlotElement => element.type === 'plot')
+              .map((plot) => renderPlot(plot, selectedIds.includes(plot.id), startElementDrag))}
+            {project.elements
+              .filter(isEdgeElement)
               .map((edge) =>
-                renderEdge(edge, project, selectedIds.includes(edge.id), startElementDrag),
+                renderEdge(edge, lookup, selectedIds.includes(edge.id), startElementDrag),
               )}
             {project.elements
               .filter(isNodeElement)
               .map((node) => renderNode(node, selectedIds.includes(node.id), startElementDrag))}
-            {project.elements
-              .filter((element) => element.type === 'raw-tikz')
-              .map((raw) => (
-                <g
-                  key={raw.id}
-                  data-testid={`canvas-element-${raw.id}`}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    select(raw.id);
-                  }}
-                >
-                  <rect
-                    x={32}
-                    y={32}
-                    width={230}
-                    height={44}
-                    rx={8}
-                    fill="#251e33"
-                    stroke="#a67bd6"
-                    strokeDasharray="5 4"
-                  />
-                  <text x={44} y={59} fill="#d4bbfa" fontSize={12}>
-                    Raw TikZ · unsupported
-                  </text>
-                </g>
-              ))}
+            {rawBlocks.map((raw, index) => (
+              <g
+                key={raw.id}
+                data-testid={`canvas-element-${raw.id}`}
+                className="raw-chip"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  select(raw.id);
+                }}
+              >
+                <rect
+                  x={16}
+                  y={16 + index * 34}
+                  width={250}
+                  height={28}
+                  rx={7}
+                  fill="#251e33"
+                  stroke={selectedIds.includes(raw.id) ? '#67d8bc' : '#a67bd6'}
+                  strokeDasharray="5 4"
+                />
+                <text x={28} y={34 + index * 34} fill="#d4bbfa" fontSize={11}>
+                  {`TikZ · ${raw.reason}`.slice(0, 40)}
+                </text>
+              </g>
+            ))}
             {selectedElement &&
               'x' in selectedElement &&
               'width' in selectedElement &&
