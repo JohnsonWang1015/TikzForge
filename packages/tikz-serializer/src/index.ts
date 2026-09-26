@@ -1,14 +1,31 @@
 import {
-  canvasToTikz,
+  autoNodeSize,
+  canvasToTikzPoint,
   formatNumber,
+  isEdgeElement,
   isNodeElement,
+  pxToPt,
+  relativePlacement,
+  resolveStyleRefs,
+  tikzColor,
   type DiagramElement,
   type EdgeElement,
   type NodeElement,
   type PlotElement,
+  type Point,
   type Project,
   type RawTikzBlock,
 } from '@tikzforge/graphic-ir';
+import {
+  arrowStyleForTip,
+  fontOption,
+  lineWidthOption,
+  parseArrowSpec,
+  TIKZ_PREAMBLE,
+  type SourceMap,
+} from '@tikzforge/tikz-parser';
+
+export { patchSource } from './patch';
 
 export interface SerializerOptions {
   includeDocument?: boolean;
@@ -20,158 +37,282 @@ export interface SerializerOptions {
 
 export interface SerializedProject {
   source: string;
-  sourceMap: Record<string, { startOffset: number; endOffset: number }>;
+  sourceMap: SourceMap;
 }
 
-function escapeNodeText(value: string): string {
-  return value
-    .replace(/\\/gu, '\\textbackslash{}')
-    .replace(/([{}])/gu, '\\$1')
-    .replace(/%/gu, '\\%')
-    .replace(/&/gu, '\\&');
+/** Escapes characters TeX would misread in node text while leaving intended markup alone. */
+function texText(value: string): string {
+  let result = '';
+  let math = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? '';
+    if (character === '\\') {
+      result += character + (value[index + 1] ?? '');
+      index += 1;
+      continue;
+    }
+    if (character === '$') math = !math;
+    if (character === '%' || character === '&' || character === '#') result += '\\';
+    if (!math && character === '_') result += '\\';
+    result += !math && character === '^' ? '\\^{}' : character;
+  }
+  return result;
 }
 
-function colorToTikz(value: string, fallback: string): string {
-  const normalized = value.trim().toLowerCase();
-  const colors: Record<string, string> = {
-    transparent: 'none',
-    none: 'none',
-    '#101827': 'black!8',
-    '#0b1020': 'black!2',
-    '#163250': 'blue!15',
-    '#382650': 'violet!15',
-    '#18443b': 'green!15',
-    '#91a4c6': 'black!65',
-    '#6f83a7': 'black!60',
-    '#65d1b8': 'teal!70!black',
-    '#e6edf7': 'black',
-  };
-  if (colors[normalized]) return colors[normalized];
-  if (/^[a-z][a-z0-9!]*$/u.test(normalized)) return normalized;
-  return fallback;
+function coordinate(point: Point, project: Project, pixelsPerCm: number): string {
+  const tikz = canvasToTikzPoint(point, { ...project.settings, pixelsPerCm });
+  return `(${formatNumber(tikz.x)},${formatNumber(tikz.y)})`;
+}
+
+function cm(pixels: number, pixelsPerCm: number): string {
+  return `${formatNumber(pixels / pixelsPerCm, 2)}cm`;
 }
 
 function optionList(options: string[]): string {
-  return options.filter(Boolean).join(', ');
+  const list = options.filter(Boolean);
+  return list.length ? `[${list.join(', ')}]` : '';
 }
 
-function coordinate(x: number, y: number, pixelsPerCm: number): string {
-  return `(${formatNumber(canvasToTikz(x, pixelsPerCm))},${formatNumber(canvasToTikz(y, pixelsPerCm))})`;
-}
-
-function nodeOptions(node: NodeElement, pixelsPerCm: number): string[] {
-  const options: string[] = [];
-  if (node.style.stroke !== 'transparent' && node.style.stroke !== 'none') options.push('draw');
-  if (node.style.rounded) options.push('rounded corners');
-  if (node.style.dashed) options.push('dashed');
-  const fill = colorToTikz(node.style.fill, 'none');
-  if (fill !== 'none') options.push(`fill=${fill}`);
-  if (node.style.lineWidth > 0) options.push(`line width=${formatNumber(node.style.lineWidth)}pt`);
-  if (node.type === 'circle') options.push('circle');
-  if (node.type === 'ellipse') options.push('ellipse');
-  if (node.style.fontWeight === 'bold') options.push('font=\\bfseries');
-  if (node.style.fontSize > 0)
+function nodeOptions(node: NodeElement, project: Project, pixelsPerCm: number): string[] {
+  const refs = node.styleRefs ?? [];
+  const baseline = resolveStyleRefs(project.styles, refs, pixelsPerCm);
+  const base = baseline.style;
+  const style = node.style;
+  const options = [...refs];
+  const shape = node.type === 'circle' || node.type === 'ellipse' ? node.type : 'rectangle';
+  if (shape !== (baseline.shape ?? 'rectangle')) options.push(shape);
+  const stroke = tikzColor(style.stroke, 'stroke');
+  if (stroke !== tikzColor(base.stroke, 'stroke'))
+    options.push(stroke === 'none' ? 'draw=none' : stroke === 'black' ? 'draw' : `draw=${stroke}`);
+  const fill = tikzColor(style.fill, 'fill');
+  if (fill !== tikzColor(base.fill, 'fill')) options.push(`fill=${fill}`);
+  const text = tikzColor(style.textColor, 'text');
+  if (text !== tikzColor(base.textColor, 'text')) options.push(`text=${text}`);
+  if (style.rounded !== base.rounded)
+    options.push(style.rounded ? 'rounded corners' : 'sharp corners');
+  if (Boolean(style.dashed) !== Boolean(base.dashed))
+    options.push(style.dashed ? 'dashed' : 'solid');
+  if (Math.abs(pxToPt(style.lineWidth - base.lineWidth, pixelsPerCm)) > 0.02)
+    options.push(lineWidthOption(style.lineWidth, pixelsPerCm) ?? 'thin');
+  if (
+    Math.abs(pxToPt(style.fontSize - base.fontSize, pixelsPerCm)) > 0.2 ||
+    style.fontWeight !== base.fontWeight
+  )
     options.push(
-      `font=\\fontsize{${formatNumber(node.style.fontSize)}pt}{${formatNumber(node.style.fontSize * 1.2)}pt}\\selectfont`,
+      fontOption(style.fontSize, style.fontWeight === 'bold', pixelsPerCm) ?? 'font=\\normalsize',
     );
-  if (node.style.textWidth)
-    options.push(`text width=${formatNumber(canvasToTikz(node.style.textWidth, pixelsPerCm))}cm`);
-  if (node.style.align !== 'center') options.push(`align=${node.style.align}`);
-  return options;
-}
-
-function serializeNode(node: NodeElement, pixelsPerCm: number, indent: string): string {
-  const options = nodeOptions(node, pixelsPerCm);
-  const id = node.id ? ` (${node.id})` : '';
-  const position =
-    node.position.mode === 'relative'
-      ? `${node.position.relation}=of ${node.position.target}`
-      : `at ${coordinate(node.x, node.y, pixelsPerCm)}`;
-  const text = node.text ? ` {${escapeNodeText(node.text)}}` : ' {}';
-  return `${indent}\\node[${optionList(options)}]${id} ${position}${text};`;
-}
-
-function edgeArrow(element: EdgeElement): string {
-  if (element.type === 'bidirectional-arrow') return '<->';
-  if (element.type === 'line') return '';
-  if (element.style.arrow === 'none') return '';
-  return '->';
-}
-
-function serializeEdge(edge: EdgeElement, pixelsPerCm: number, indent: string): string {
-  const options: string[] = [];
-  const arrow = edgeArrow(edge);
-  if (arrow) options.push(arrow);
-  if (edge.style.dashed || edge.type === 'dashed-arrow') options.push('dashed');
-  if (edge.style.lineWidth > 0) options.push(`line width=${formatNumber(edge.style.lineWidth)}pt`);
-  const start = `(${edge.from})`;
-  const end = `(${edge.to})`;
-  let path = `${start} -- ${end}`;
-  if (edge.type === 'curved-arrow' && edge.controlPoints?.length) {
-    const controls = edge.controlPoints
-      .map((point) => coordinate(point.x, point.y, pixelsPerCm))
-      .join(' and ');
-    path = `${start} .. controls ${controls} .. ${end}`;
+  if (style.textWidth !== base.textWidth && style.textWidth)
+    options.push(`text width=${cm(style.textWidth, pixelsPerCm)}`);
+  if (style.align !== base.align) options.push(`align=${style.align}`);
+  if (node.sizeMode !== 'auto') {
+    const auto = autoNodeSize(shape, node.text, style);
+    const differs = (value: number, minimum: number | undefined, natural: number) =>
+      Math.abs(value - (minimum ?? natural)) >= 0.5;
+    if (shape === 'circle') {
+      if (differs(node.width, baseline.minimumWidth, auto.width))
+        options.push(`minimum size=${cm(node.width, pixelsPerCm)}`);
+    } else {
+      if (differs(node.width, baseline.minimumWidth, auto.width))
+        options.push(`minimum width=${cm(node.width, pixelsPerCm)}`);
+      if (differs(node.height, baseline.minimumHeight, auto.height))
+        options.push(`minimum height=${cm(node.height, pixelsPerCm)}`);
+    }
   }
-  const label = edge.label ? ` node[midway] {${escapeNodeText(edge.label)}}` : '';
-  return `${indent}\\draw[${optionList(options)}] ${path}${label};`;
+  return [...options, ...(node.extraOptions ?? [])];
 }
 
-function serializePlot(plot: PlotElement, indent: string): string {
-  const options: string[] = [];
-  if (plot.plotType === 'bar') options.push('ybar');
-  if (plot.plotType === 'scatter') options.push('only marks');
-  if (plot.title) options.push(`title={${escapeNodeText(plot.title)}}`);
-  if (plot.xLabel) options.push(`xlabel={${escapeNodeText(plot.xLabel)}}`);
-  if (plot.yLabel) options.push(`ylabel={${escapeNodeText(plot.yLabel)}}`);
-  const data = plot.data
-    .map((point) => `(${formatNumber(point.x)},${formatNumber(point.y)})`)
-    .join(' ');
-  if (plot.plotType === 'function' && plot.expression) {
-    return `${indent}\\begin{axis}[${optionList(options)}]\n${indent}  \\addplot ${plot.expression};\n${indent}\\end{axis}`;
+function nodePosition(node: NodeElement, project: Project, pixelsPerCm: number): string {
+  const position = node.position;
+  if (position.mode === 'relative') {
+    const target = project.elements.find((element) => element.id === position.target);
+    const expected = target ? relativePlacement(node, target, pixelsPerCm) : undefined;
+    if (expected && Math.abs(expected.x - node.x) < 0.5 && Math.abs(expected.y - node.y) < 0.5) {
+      const implicit =
+        position.distance === 1 && !/node distance/u.test(project.pictureOptions ?? '');
+      return implicit ? '' : `${formatNumber(position.distance)}cm `;
+    }
   }
-  return `${indent}\\begin{axis}[${optionList(options)}]\n${indent}  \\addplot coordinates { ${data} };\n${indent}\\end{axis}`;
+  return `at ${coordinate(node, project, pixelsPerCm)}`;
 }
 
-function serializeRaw(raw: RawTikzBlock, indent: string): string {
-  return raw.source
-    .split('\n')
-    .map((line) => `${indent}${line.trim()}`)
-    .join('\n');
+function serializeNode(node: NodeElement, project: Project, pixelsPerCm: number): string {
+  const options = nodeOptions(node, project, pixelsPerCm);
+  const position = nodePosition(node, project, pixelsPerCm);
+  if (node.type === 'coordinate')
+    return `\\coordinate${optionList(node.extraOptions ?? [])} (${node.id}) ${
+      position.startsWith('at') ? position : `at ${coordinate(node, project, pixelsPerCm)}`
+    };`;
+  if (!position.startsWith('at') && node.position.mode === 'relative')
+    options.push(`${node.position.relation}=${position}of ${node.position.target}`);
+  const at = position.startsWith('at') ? ` ${position}` : '';
+  return `\\node${optionList(options)} (${node.id})${at} {${texText(node.text)}};`;
 }
 
-function elementSort(a: DiagramElement, b: DiagramElement): number {
-  const order: Record<DiagramElement['layer'], number> = {
-    background: 0,
-    nodes: 1,
-    labels: 2,
-    connections: 3,
-    overlays: 4,
+type Direction = 'none' | 'forward' | 'backward' | 'both';
+
+function specDirection(spec: string | undefined): Direction | undefined {
+  const tips = spec === undefined ? undefined : parseArrowSpec(spec);
+  if (!tips) return undefined;
+  if (tips.start && tips.end) return 'both';
+  if (tips.end) return 'forward';
+  return tips.start ? 'backward' : 'none';
+}
+
+function edgeDirection(edge: EdgeElement): Direction {
+  if (edge.type === 'line' || edge.style.arrow === 'none') return 'none';
+  return edge.type === 'bidirectional-arrow' ? 'both' : 'forward';
+}
+
+function arrowOption(edge: EdgeElement): string {
+  const direction = edgeDirection(edge);
+  const spec = edge.arrowSpec;
+  if (spec && specDirection(spec) === direction) {
+    const tips = parseArrowSpec(spec);
+    const tip = tips?.end || tips?.start || '';
+    if (direction === 'none' || arrowStyleForTip(tip) === edge.style.arrow || /^[<>]$/u.test(tip))
+      return spec;
+  }
+  if (direction === 'none') return '';
+  const tip =
+    edge.style.arrow === 'latex' ? 'Latex' : edge.style.arrow === 'triangle' ? 'Triangle' : '';
+  if (direction === 'both') return tip ? `${tip}-${tip}` : '<->';
+  return tip ? `-${tip}` : '->';
+}
+
+function edgeOptions(edge: EdgeElement, project: Project, pixelsPerCm: number): string[] {
+  const refs = edge.styleRefs ?? [];
+  const definition = Object.assign({}, ...refs.map((name) => project.styles[name] ?? {})) as {
+    arrowSpec?: string;
+    dashed?: boolean;
+    stroke?: string;
+    lineWidth?: number;
   };
-  return order[a.layer] - order[b.layer] || a.id.localeCompare(b.id);
+  const options = [...refs];
+  const arrow = arrowOption(edge);
+  if ((specDirection(arrow) ?? 'none') !== (specDirection(definition.arrowSpec) ?? 'none'))
+    options.push(arrow || '-');
+  else if (arrow && arrow !== definition.arrowSpec) options.push(arrow);
+  const dashed = edge.style.dashed || edge.type === 'dashed-arrow';
+  if (dashed !== Boolean(definition.dashed)) options.push(dashed ? 'dashed' : 'solid');
+  const stroke = tikzColor(edge.style.stroke, 'stroke');
+  if (stroke !== tikzColor(definition.stroke ?? 'black', 'stroke') && stroke !== 'none')
+    options.push(stroke);
+  const baseWidth = definition.lineWidth ?? (0.4 / 28.4528) * pixelsPerCm;
+  if (Math.abs(pxToPt(edge.style.lineWidth - baseWidth, pixelsPerCm)) > 0.02)
+    options.push(lineWidthOption(edge.style.lineWidth, pixelsPerCm) ?? 'thin');
+  return [...options, ...(edge.extraOptions ?? [])];
 }
 
-function serializeElement(
+function serializeEdge(edge: EdgeElement, project: Project, pixelsPerCm: number): string {
+  const endpoint = (id: string, anchor: string | undefined) =>
+    `(${id}${anchor ? `.${anchor}` : ''})`;
+  const start = endpoint(edge.from, edge.fromAnchor);
+  const end = endpoint(edge.to, edge.toAnchor);
+  let operation = '--';
+  if (edge.route) operation = edge.route;
+  else if (edge.bend) {
+    const angle = Math.abs(edge.bend);
+    operation = `to[bend ${edge.bend > 0 ? 'left' : 'right'}${angle === 30 ? '' : `=${formatNumber(angle)}`}]`;
+  } else if (edge.type === 'curved-arrow' && edge.controlPoints?.length) {
+    operation = `.. controls ${edge.controlPoints
+      .slice(0, 2)
+      .map((point) => coordinate(point, project, pixelsPerCm))
+      .join(' and ')} ..`;
+  }
+  const label = edge.label
+    ? ` node${optionList(['midway', edge.labelOptions ?? ''])} {${texText(edge.label)}}`
+    : '';
+  const options = optionList(edgeOptions(edge, project, pixelsPerCm));
+  return `\\draw${options} ${start} ${operation} ${end}${label};`;
+}
+
+function serializePlot(
+  plot: PlotElement,
+  project: Project,
+  pixelsPerCm: number,
+  indent: string,
+): string {
+  const options = [
+    `at={${coordinate(plot, project, pixelsPerCm)}}`,
+    'anchor=center',
+    `width=${cm(plot.width, pixelsPerCm)}`,
+    `height=${cm(plot.height, pixelsPerCm)}`,
+  ];
+  if (plot.plotType === 'bar') options.push('ybar');
+  const addplotOptions = plot.addplotOptions ?? '';
+  if (plot.plotType === 'scatter' && !/only marks/u.test(addplotOptions))
+    options.push('only marks');
+  if (plot.title) options.push(`title={${texText(plot.title)}}`);
+  if (plot.xLabel) options.push(`xlabel={${texText(plot.xLabel)}}`);
+  if (plot.yLabel) options.push(`ylabel={${texText(plot.yLabel)}}`);
+  options.push(...(plot.extraOptions ?? []));
+  const addplot = `\\addplot${addplotOptions ? `[${addplotOptions}]` : ''}`;
+  const expression = plot.expression?.trim();
+  const body =
+    plot.plotType === 'function' && expression
+      ? `${addplot} ${expression.startsWith('{') ? expression : `{${expression}}`};`
+      : `${addplot} coordinates {${plot.data
+          .map((point) => ` (${formatNumber(point.x)},${formatNumber(point.y)})`)
+          .join('')} };`;
+  return `\\begin{axis}[${options.join(', ')}]\n${indent}  ${body}\n${indent}\\end{axis}`;
+}
+
+const PATH_STATEMENT =
+  /^\\(?:node|coordinate|draw|path|fill|filldraw|clip|shade|shadedraw|pic|matrix)\b/u;
+
+function serializeRaw(raw: RawTikzBlock): string {
+  const source = raw.source.trim();
+  // Blocks saved by older versions dropped the terminating semicolon.
+  return PATH_STATEMENT.test(source) && !/[;}]$/u.test(source) ? `${source};` : source;
+}
+
+/** Statement text for one element, without leading indentation; later lines use `indent`. */
+export function serializeElementSource(
   element: DiagramElement,
   project: Project,
-  indent: string,
-  pixelsPerCm: number,
+  options: { pixelsPerCm?: number; indent?: string } = {},
 ): string {
-  if (element.type === 'raw-tikz') return serializeRaw(element, indent);
-  if (element.type === 'plot') return serializePlot(element, indent);
-  if (element.type === 'group')
-    return `${indent}% Group ${element.name}: ${element.children.join(', ')}`;
-  if (
-    element.type === 'line' ||
-    element.type === 'arrow' ||
-    element.type === 'bidirectional-arrow' ||
-    element.type === 'dashed-arrow' ||
-    element.type === 'curved-arrow'
-  ) {
-    return serializeEdge(element, pixelsPerCm, indent);
+  const pixelsPerCm = options.pixelsPerCm ?? project.settings.pixelsPerCm;
+  const indent = options.indent ?? '  ';
+  if (element.type === 'raw-tikz') return serializeRaw(element);
+  if (element.type === 'plot') return serializePlot(element, project, pixelsPerCm, indent);
+  if (element.type === 'group') return `% Group ${element.name}: ${element.children.join(', ')}`;
+  if (isEdgeElement(element)) return serializeEdge(element, project, pixelsPerCm);
+  return isNodeElement(element) ? serializeNode(element, project, pixelsPerCm) : '';
+}
+
+function dependencies(element: DiagramElement): string[] {
+  if (isEdgeElement(element)) return [element.from, element.to];
+  if (isNodeElement(element) && element.position.mode === 'relative')
+    return [element.position.target];
+  return [];
+}
+
+/** IR order, except that an element is moved after the nodes it references (TikZ needs that). */
+export function orderedElements(project: Project): DiagramElement[] {
+  const ids = new Set(project.elements.map((element) => element.id));
+  const defined = new Set<string>();
+  const ordered: DiagramElement[] = [];
+  let pending = [...project.elements];
+  let progress = true;
+  while (pending.length && progress) {
+    progress = false;
+    const waiting: DiagramElement[] = [];
+    for (const element of pending) {
+      const ready = dependencies(element).every((id) => !ids.has(id) || defined.has(id));
+      if (ready) {
+        ordered.push(element);
+        defined.add(element.id);
+        progress = true;
+      } else waiting.push(element);
+    }
+    pending = waiting;
   }
-  void project;
-  return isNodeElement(element) ? serializeNode(element, pixelsPerCm, indent) : '';
+  return [...ordered, ...pending];
+}
+
+export function pictureBegin(project: Project): string {
+  return `\\begin{tikzpicture}${project.pictureOptions ? `[${project.pictureOptions}]` : ''}`;
 }
 
 /** Deterministic, human-readable serializer for the Graphic IR. */
@@ -185,33 +326,30 @@ export function serializeProjectWithMap(
 ): SerializedProject {
   const indent = options.indent ?? '  ';
   const pixelsPerCm = options.pixelsPerCm ?? project.settings.pixelsPerCm;
-  const lines: string[] = [];
-  const sourceMap: Record<string, { startOffset: number; endOffset: number }> = {};
+  let source = '';
+  const sourceMap: SourceMap = {};
+  const append = (line: string) => {
+    source += `${source ? '\n' : ''}${line}`;
+  };
   const wrapper = project.documentWrapper;
-  if (wrapper) {
-    lines.push(wrapper.prefix.trimEnd(), '');
-  } else if (options.includeDocument) {
-    lines.push(
-      options.documentPrefix ?? '\\documentclass{standalone}',
-      options.documentPrefix ? '' : '\\usepackage{tikz}',
-      '',
-      '\\begin{document}',
-      '',
-    );
+  if (wrapper) append(`${wrapper.prefix.trimEnd()}\n`);
+  else if (options.includeDocument) {
+    const preamble = options.documentPrefix ? [options.documentPrefix] : TIKZ_PREAMBLE;
+    append([...preamble, '', '\\begin{document}', ''].join('\n'));
   }
-  lines.push('\\begin{tikzpicture}');
-  const elements = [...project.elements].sort(elementSort);
-  for (const element of elements) {
-    const startOffset = lines.join('\n').length + (lines.length ? 1 : 0);
-    lines.push(serializeElement(element, project, indent, pixelsPerCm));
-    const endOffset = lines.join('\n').length;
-    sourceMap[element.id] = { startOffset, endOffset };
+  append(pictureBegin(project));
+  for (const element of orderedElements(project)) {
+    const text = serializeElementSource(element, project, { pixelsPerCm, indent });
+    if (!text) continue;
+    append(indent);
+    sourceMap[element.id] = { startOffset: source.length, endOffset: source.length + text.length };
+    source += text;
   }
-  lines.push('\\end{tikzpicture}');
-  if (wrapper) lines.push('', wrapper.suffix.trimStart());
-  else if (options.includeDocument) lines.push('', '\\end{document}');
-  if (options.documentSuffix) lines.push(options.documentSuffix);
-  return { source: lines.join('\n'), sourceMap };
+  append('\\end{tikzpicture}');
+  if (wrapper) append(`\n${wrapper.suffix.trimStart()}`);
+  else if (options.includeDocument) append('\n\\end{document}');
+  if (options.documentSuffix) append(options.documentSuffix);
+  return { source, sourceMap };
 }
 
 export const projectToTikz = serializeProject;
