@@ -38,6 +38,15 @@ impl CompileError {
     }
 }
 
+/// Which engine produced a preview. The compiler service only ever sends `Tectonic`; the web app
+/// sends `Fast` for its own IR renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Renderer {
+    Tectonic,
+    Fast,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderResponse {
     pub success: bool,
@@ -46,11 +55,12 @@ pub struct RenderResponse {
     pub compile_time_ms: u128,
     pub log: String,
     pub errors: Vec<CompileError>,
+    pub renderer: Renderer,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileError, RenderResponse};
+    use super::{CompileError, RenderResponse, Renderer};
 
     #[test]
     fn serializes_the_web_render_contract() {
@@ -60,10 +70,12 @@ mod tests {
             compile_time_ms: 42,
             log: String::new(),
             errors: vec![CompileError::error(3, "Undefined control sequence.")],
+            renderer: Renderer::Tectonic,
         };
         let json = serde_json::to_value(&response).expect("serializable");
         assert_eq!(json["compileTime"], 42);
         assert!(json.get("compile_time_ms").is_none());
+        assert_eq!(json["renderer"], "tectonic");
         assert_eq!(json["errors"][0]["severity"], "error");
         assert_eq!(json["errors"][0]["line"], 3);
         assert_eq!(json["errors"][0]["column"], 1);

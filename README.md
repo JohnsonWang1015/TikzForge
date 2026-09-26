@@ -66,9 +66,14 @@ browser globals. Public render and generation endpoints live under `apps/web/src
 docker compose up --build
 ```
 
-The compose file starts the web app and an optional Rust compiler service. Compilation is disabled
-by default in the web app unless `COMPILER_SERVICE_URL` is configured. The compiler container is
-designed to run Tectonic without shell escape, network access, or access to the host filesystem.
+The compose file starts the web app on <http://localhost:3000> and a Rust compiler service with
+Tectonic and an offline package cache built into its image, so previews are real LaTeX output with
+no extra setup. The first image build downloads Tectonic and its packages; after that the compiler
+container runs without network access, as a non-root user, with a read-only filesystem and no shell
+escape. If the compiler is unavailable, the web app falls back to its fast SVG preview, and the
+preview panel shows which renderer produced the image. See [docs/compiler.md](docs/compiler.md).
+
+Outside Docker, the web app uses only the fast renderer unless `COMPILER_SERVICE_URL` is set.
 
 ## Usage
 

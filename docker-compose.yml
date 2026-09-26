@@ -7,6 +7,12 @@ services:
       - '3000:3000'
     environment:
       COMPILER_SERVICE_URL: http://compiler:8080
+      # Next's standalone server binds to $HOSTNAME (the container id by default), which resolves
+      # to only one of this container's two networks.
+      HOSTNAME: 0.0.0.0
+    networks:
+      - default
+      - compiler
     depends_on:
       - compiler
 
@@ -16,7 +22,9 @@ services:
       dockerfile: docker/compiler/Dockerfile
     expose:
       - '8080'
-    network_mode: none
+    # Only reachable from the web service; an internal network has no route to the outside.
+    networks:
+      - compiler
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=256m
@@ -26,3 +34,7 @@ services:
       - no-new-privileges:true
     mem_limit: 512m
     cpus: 1.0
+
+networks:
+  compiler:
+    internal: true
